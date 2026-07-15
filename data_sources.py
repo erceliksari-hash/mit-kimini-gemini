@@ -1,10 +1,13 @@
-import yfinance as yf
-import streamlit as st
-
 @st.cache_data(ttl=3600)
 def veri_cek(sembol):
     try:
-        df = yf.download(sembol, period="1mo", progress=False)
-        return df if not df.empty else None
-    except:
+        # 'auto_adjust' parametresi ile veriyi temizleyin
+        df = yf.download(sembol, period="1mo", auto_adjust=True, progress=False)
+        if df is None or df.empty:
+            return None
+        # Sütunları düzelt (MultiIndex sorununu engellemek için)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+    except Exception:
         return None
