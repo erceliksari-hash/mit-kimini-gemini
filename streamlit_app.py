@@ -124,11 +124,10 @@ elif sayfa == "📈 Canlı Analiz & Portföy":
             st.markdown(f"**Periyot:** {aktif_ayarlar['zaman_dilimi']}")
         
         with col2:
-            # YENİ: Kullanıcının grafiğe ekleyebileceği indikatör menüsü
             ek_gostergeler = st.multiselect(
                 "Grafik Üzerinde Gösterilecek İndikatörler",
-                ["Bollinger Bantları", "MACD (Alt Grafik)", "RSI (Alt Grafik)"],
-                default=["Bollinger Bantları"]
+                ["Bollinger Bantları", "Özel İndikatörüm", "RSI (Alt Grafik)", "MACD (Alt Grafik)"],
+                default=["Bollinger Bantları", "Özel İndikatörüm"]
             )
             
         df = veri_cek(secili_grafik, aralik=aktif_ayarlar["zaman_dilimi"])
@@ -143,7 +142,7 @@ elif sayfa == "📈 Canlı Analiz & Portföy":
             c3.metric("Direnç (TP)", f"{analiz['direnc']:.2f}")
             c4.metric("Pozisyon", sinyal)
             
-            # GRAFİK KATMANLARINI OLUŞTURMA (Subplots)
+            # GRAFİK KATMANLARI
             satir_sayisi = 1
             row_heights = [0.7]
             if "RSI (Alt Grafik)" in ek_gostergeler:
@@ -163,23 +162,27 @@ elif sayfa == "📈 Canlı Analiz & Portföy":
             fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['sma_20'], name='SMA 20', line=dict(color='orange', width=1.5)), row=1, col=1)
             fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['sma_50'], name='SMA 50', line=dict(color='blue', width=1.5)), row=1, col=1)
 
-            # YENİ: Destek ve Direnç Çizgileri
+            # Destek ve Direnç Çizgileri
             fig.add_hline(y=analiz['destek'], line_dash="dot", line_color="green", annotation_text="Güçlü Destek", row=1, col=1)
             fig.add_hline(y=analiz['direnc'], line_dash="dot", line_color="red", annotation_text="Güçlü Direnç", row=1, col=1)
 
-            # YENİ: Long (Al) ve Short (Sat) Noktalarını İşaretleme
+            # Long / Short Noktaları
             al_noktalari = df_analiz[df_analiz['sinyal_tarihsel'] == 1]
             sat_noktalari = df_analiz[df_analiz['sinyal_tarihsel'] == -1]
             
             fig.add_trace(go.Scatter(x=al_noktalari['tarih'], y=al_noktalari['low'] * 0.98, mode='markers', name='AL (Long)', marker=dict(symbol='triangle-up', color='green', size=14)), row=1, col=1)
             fig.add_trace(go.Scatter(x=sat_noktalari['tarih'], y=sat_noktalari['high'] * 1.02, mode='markers', name='SAT (Short)', marker=dict(symbol='triangle-down', color='red', size=14)), row=1, col=1)
 
-            # Opsiyonel: Bollinger Bantları
+            # Bollinger Bantları
             if "Bollinger Bantları" in ek_gostergeler:
                 fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['bollinger_ust'], name='Bol. Üst', line=dict(color='rgba(173,216,230,0.5)', width=1, dash='dash')), row=1, col=1)
                 fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['bollinger_alt'], name='Bol. Alt', fill='tonexty', fillcolor='rgba(173,216,230,0.1)', line=dict(color='rgba(173,216,230,0.5)', width=1, dash='dash')), row=1, col=1)
 
-            # Opsiyonel Alt Grafikler (RSI, MACD)
+            # Özel İndikatör Çizimi (Ana Grafik Üzerinde)
+            if "Özel İndikatörüm" in ek_gostergeler:
+                fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['ozel_indikator'], name='Özel İndikatör', line=dict(color='yellow', width=1.5, dash='dash')), row=1, col=1)
+
+            # Alt Grafikler (RSI, MACD)
             guncel_satir = 2
             if "RSI (Alt Grafik)" in ek_gostergeler:
                 fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['rsi'], name='RSI', line=dict(color='purple', width=1.5)), row=guncel_satir, col=1)
