@@ -2,17 +2,43 @@ import streamlit as st
 import requests
 import threading
 import time
+import json
+import os
+import plotly.graph_objects as go
+import pandas as pd
+
 from data_sources import veri_cek
 from indicators import hesapla_teknikler, sinyal_kontrol, piyasa_analizi_yap
 from utils import donusum_noktalari_hesapla
 from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
-import plotly.graph_objects as go
-import pandas as pd
 
-st.set_page_config(page_title="Finansal Analiz Paneli", layout="wide")
-
-# Modern Stil
+st.set_page_config(page_title="Pro Finans Paneli", layout="wide")
 st.markdown("""<style>.stApp { background-color: #0e1117; }</style>""", unsafe_allow_html=True)
+
+# ==============================================================================
+# JSON AYAR YÖNETİMİ (ARAYÜZ VE BOT ARASINDAKİ KÖPRÜ)
+# ==============================================================================
+AYAR_DOSYASI = "ayarlar.json"
+VARSAYILAN_AYARLAR = {
+    "varliklar": ["BTC-USD", "THYAO.IS", "AAPL"],
+    "zaman_dilimi": "1h",
+    "bot_sikligi_dk": 60
+}
+
+def ayarlari_yukle():
+    if not os.path.exists(AYAR_DOSYASI):
+        with open(AYAR_DOSYASI, "w") as f:
+            json.dump(VARSAYILAN_AYARLAR, f)
+        return VARSAYILAN_AYARLAR
+    try:
+        with open(AYAR_DOSYASI, "r") as f:
+            return json.load(f)
+    except:
+        return VARSAYILAN_AYARLAR
+
+def ayarlari_kaydet(ayarlar):
+    with open(AYAR_DOSYASI, "w") as f:
+        json.dump(ayarlar, f)
 
 # ==============================================================================
 # TELEGRAM BİLDİRİM FONKSİYONU
@@ -20,31 +46,33 @@ st.markdown("""<style>.stApp { background-color: #0e1117; }</style>""", unsafe_a
 def telegram_bildirim_gonder(mesaj):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
-    
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mesaj,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mesaj, "parse_mode": "Markdown"}
     try:
-        response = requests.post(url, json=payload)
-        return response.json()
+        requests.post(url, json=payload)
     except Exception as e:
-        print(f"Telegram bildirimi gönderilemedi: {e}")
+        print(f"Telegram hatası: {e}")
 
 # ==============================================================================
-# ARKA PLANDA ÇALIŞAN 7/24 SAATLİK OTOMATİK BOT (THREADING)
+# AKILLI ARKA PLAN BOTU (JSON OKUYUCU)
 # ==============================================================================
-def otomatik_saatlik_tarama():
-    time.sleep(15)  # Uygulama açıldıktan 15 saniye sonra ilk döngüyü başlatır
+def otomatik_tarama_botu():
+    time.sleep(15)  # Başlangıç gecikmesi
     while True:
         try:
-            varliklar_listesi = ["AAPL", "BTC-USD", "EURUSD=X", "ISMEN.IS", "THYAO.IS"]
-            ozet_mesaj = "🚨 *Otomatik Saatlik Pozisyon & Stop-Loss Raporu*\n\n"
+            ayarlar = ayarlari_yukle()
+            varliklar = ayarlar.get("varliklar", [])
+            zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
+            bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
             
-            for varlik in varliklar_listesi:
-                df_t = veri_cek(varlik, aralik="1h")
+            if not varliklar:
+                time.sleep(bekleme_suresi)
+                continue
+                
+            ozet_mesaj = f"🚨 *Otomatik Portföy Raporu* (Periyot: {zaman_dilimi})\n\n"
+            
+            for varlik in varliklar:
+                df_t = veri_cek(varlik, aralik=zaman_dilimi)
                 if df_t is not None and not df_t.empty:
                     df_t_analiz = hesapla_teknikler(df_t)
                     p_analiz = donusum_noktalari_hesapla(df_t_analiz)
@@ -52,326 +80,188 @@ def otomatik_saatlik_tarama():
                     
                     if "AL" in p_sinyal.upper():
                         pozisyon = "🟢 *LONG*"
-                        stop_loss = p_analiz['destek'] * 0.99
+                        sl = p_analiz['destek'] * 0.99
                     elif "SAT" in p_sinyal.upper():
                         pozisyon = "🔴 *SHORT*"
-                        stop_loss = p_analiz['direnc'] * 1.01
+                        sl = p_analiz['direnc'] * 1.01
                     else:
                         pozisyon = "⚪ *NÖTR*"
-                        stop_loss = p_analiz['destek'] * 0.98
+                        sl = p_analiz['destek'] * 0.98
                         
-                    ozet_mesaj += f"• *{varlik}*: Fiyat: `{p_analiz['fiyat']:.2f}` | Tavsiye: {pozisyon} | Stop-Loss: `{stop_loss:.2f}`\n"
+                    ozet_mesaj += f"• *{varlik}*: Fiyat: `{p_analiz['fiyat']:.2f}` | {pozisyon} | SL: `{sl:.2f}`\n"
                 else:
-                    ozet_mesaj += f"• *{varlik}*: Veri alınamadı!\n"
+                    ozet_mesaj += f"• *{varlik}*: Veri hatası!\n"
                     
             telegram_bildirim_gonder(ozet_mesaj)
         except Exception as e:
-            print(f"Arka plan bot döngü hatası: {e}")
+            print(f"Bot döngü hatası: {e}")
             
-        time.sleep(3600)  # Her 1 saatte (3600 saniye) bir tekrar çalışır
+        # Dinamik olarak bekler (Kullanıcı 15dk yaparsa 15dk sonra uyanır)
+        time.sleep(bekleme_suresi)
 
-# Botun tek bir kez arka planda çalışmasını sağlayan global kontrol
 if "arkaplan_bot_aktif" not in globals():
     globals()["arkaplan_bot_aktif"] = True
-    bot_thread = threading.Thread(target=otomatik_saatlik_tarama, daemon=True)
+    bot_thread = threading.Thread(target=otomatik_tarama_botu, daemon=True)
     bot_thread.start()
+
 # ==============================================================================
+# STREAMLIT ARAYÜZ (UI)
+# ==============================================================================
+aktif_ayarlar = ayarlari_yukle()
 
-# Session State Başlatma
-if "varliklar" not in st.session_state:
-    st.session_state.varliklar = ["AAPL", "BTC-USD", "EURUSD=X", "ISMEN.IS", "THYAO.IS"]
-
-if "aktif_varlik" not in st.session_state:
-    st.session_state.aktif_varlik = st.session_state.varliklar[0]
-
-if "aktif_sekme" not in st.session_state:
-    st.session_state.aktif_sekme = "🔍 Tekli Analiz & Varlık Ekle"
-
-# Sidebar - Varlık Yönetimi ve Görünüm Seçimi
-st.sidebar.title("📊 Piyasa Paneli")
-
-sayfa_secenekleri = ["🔍 Tekli Analiz & Varlık Ekle", "🚀 Toplu Portföy Taraması"]
-current_index = sayfa_secenekleri.index(st.session_state.aktif_sekme) if st.session_state.aktif_sekme in sayfa_secenekleri else 0
-
-sayfa = st.sidebar.radio("Görünüm Seçin", sayfa_secenekleri, index=current_index)
-
-if sayfa != st.session_state.aktif_sekme:
-    st.session_state.aktif_sekme = sayfa
-    st.rerun()
-
-aralik = st.sidebar.selectbox(
-    "Zaman Dilimi", 
-    ["15m", "1h", "4h", "1d", "1wk", "1mo"], 
-    format_func=lambda x: {
-        "15m": "15 Dakikalık",
-        "1h": "1 Saatlik",
-        "4h": "4 Saatlik",
-        "1d": "Günlük",
-        "1wk": "1 Haftalık",
-        "1mo": "1 Aylık"
-    }[x]
-)
-
+st.sidebar.title("🤖 Pro Asistan")
+sayfa = st.sidebar.radio("Menü Seçimi", ["📚 Varlık Havuzu", "📈 Canlı Analiz & Portföy", "⚙️ Bot Ayarları"])
 st.sidebar.divider()
 
-hazir_listeler = {
-    "BIST Hisseleri": {
-        "ISMEN (İş Yatırım)": "ISMEN.IS",
-        "THYAO (Türk Hava Yolları)": "THYAO.IS",
-        "GARAN (Garanti BBVA)": "GARAN.IS",
-        "ASELS (Aselsan)": "ASELS.IS",
-        "EREGL (Ereğli Demir Çelik)": "EREGL.IS",
-        "ASTOR (Astor Enerji)": "ASTOR.IS",
-        "BIMAS (BİM Mağazalar)": "BIMAS.IS",
-        "AKBNK (Akbank)": "AKBNK.IS",
-        "KCHOL (Koç Holding)": "KCHOL.IS",
-        "TUPRS (Tüpraş)": "TUPRS.IS"
+# HAZIR VARLIK KÜTÜPHANESİ
+HAZIR_VARLIKLAR = {
+    "BIST 30 Hisseleri": {
+        "THYAO (Türk Hava Yolları)": "THYAO.IS", "ISMEN (İş Yatırım)": "ISMEN.IS", 
+        "GARAN (Garanti BBVA)": "GARAN.IS", "ASELS (Aselsan)": "ASELS.IS",
+        "EREGL (Ereğli D.Ç.)": "EREGL.IS", "ASTOR (Astor Enerji)": "ASTOR.IS",
+        "KCHOL (Koç Holding)": "KCHOL.IS", "TUPRS (Tüpraş)": "TUPRS.IS"
     },
-    "Kripto Para": {
-        "Bitcoin (BTC)": "BTC-USD",
-        "Ethereum (ETH)": "ETH-USD",
-        "Solana (SOL)": "SOL-USD",
-        "Ripple (XRP)": "XRP-USD",
-        "Cardano (ADA)": "ADA-USD"
+    "Kripto Paralar": {
+        "Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD",
+        "Ripple": "XRP-USD", "Cardano": "ADA-USD", "Avalanche": "AVAX-USD",
+        "Dogecoin": "DOGE-USD", "Chainlink": "LINK-USD"
     },
-    "Global & Forex": {
-        "Apple (AAPL)": "AAPL",
-        "Tesla (TSLA)": "TSLA",
-        "Microsoft (MSFT)": "MSFT",
-        "EUR/USD": "EURUSD=X",
+    "Global & Emtia & Forex": {
+        "Apple": "AAPL", "Tesla": "TSLA", "Microsoft": "MSFT", 
+        "Nvidia": "NVDA", "Altın (ONS)": "GC=F", "EUR/USD": "EURUSD=X",
         "USD/TRY": "USDTRY=X"
     }
 }
 
-# --- GÖRÜNÜM 1: TEKLİ ANALİZ VE EKLEME ---
-if st.session_state.aktif_sekme == "🔍 Tekli Analiz & Varlık Ekle":
-    st.sidebar.subheader("🔍 Varlık Ekle")
+# --- MENÜ 1: VARLIK HAVUZU ---
+if sayfa == "📚 Varlık Havuzu":
+    st.title("📚 Varlık Havuzu (Market)")
+    st.markdown("Takip etmek istediğiniz varlıkları aşağıdan seçerek portföyünüze ekleyebilirsiniz. Bot bu listeyi tarayacaktır.")
     
-    with st.sidebar.form(key="kod_ekleme_formu"):
-        arama_input = st.text_input("Varlık / Hisse Kodu Ara", placeholder="Örn: ISMEN.IS, TSLA").upper().strip()
-        submit_kod = st.form_submit_button("➕ Kod ile Ekle")
-        
-    if submit_kod:
-        if arama_input:
-            mevcut_buyuk = [v.upper() for v in st.session_state.varliklar]
-            if arama_input not in mevcut_buyuk:
-                test_df = veri_cek(arama_input, aralik=aralik)
-                if test_df is not None and not test_df.empty:
-                    st.session_state.varliklar.append(arama_input)
-                    st.session_state.aktif_varlik = arama_input
-                    if "aktif_varlik_selectbox" in st.session_state:
-                        del st.session_state["aktif_varlik_selectbox"]
-                    st.sidebar.success(f"'{arama_input}' eklendi ve seçildi!")
-                    st.rerun()
-                else:
-                    st.sidebar.error("Veri alınamadı! Kodu kontrol edin.")
+    secilenler_havuzu = set(aktif_ayarlar["varliklar"])
+    
+    col1, col2, col3 = st.columns(3)
+    kategoriler = list(HAZIR_VARLIKLAR.keys())
+    
+    # BIST Kolonu
+    with col1:
+        st.subheader("🇹🇷 BIST 30")
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler[0]].items():
+            if st.checkbox(isim, value=(kod in secilenler_havuzu), key=kod):
+                secilenler_havuzu.add(kod)
             else:
-                st.sidebar.warning("Bu varlık zaten listenizde var.")
-        else:
-            st.sidebar.warning("Lütfen bir kod girin.")
-
-    st.sidebar.divider()
-    st.sidebar.caption("Veya Hazır Listeden Seçip Ekle:")
-
-    secilen_kategori = st.sidebar.selectbox("Kategori", list(hazir_listeler.keys()))
-    varlik_dict = hazir_listeler[secilen_kategori]
-    secilen_isim = st.sidebar.selectbox("Popüler Varlıklar", list(varlik_dict.keys()))
-    secilen_kod = varlik_dict[secilen_isim]
-
-    if st.sidebar.button("➕ Seçileni Listeye Ekle"):
-        if secilen_kod not in [v.upper() for v in st.session_state.varliklar]:
-            st.session_state.varliklar.append(secilen_kod)
-        st.session_state.aktif_varlik = secilen_kod
-        if "aktif_varlik_selectbox" in st.session_state:
-            del st.session_state["aktif_varlik_selectbox"]
-        st.rerun()
-
-    st.sidebar.divider()
-
-    if st.session_state.aktif_varlik not in st.session_state.varliklar:
-        st.session_state.aktif_varlik = st.session_state.varliklar[0]
-
-    default_index = st.session_state.varliklar.index(st.session_state.aktif_varlik)
-
-    secilen_varlik = st.sidebar.selectbox(
-        "Analiz Edilecek Varlık", 
-        st.session_state.varliklar, 
-        index=default_index,
-        key="aktif_varlik_selectbox"
-    )
-
-    if secilen_varlik != st.session_state.aktif_varlik:
-        st.session_state.aktif_varlik = secilen_varlik
-        st.rerun()
-
-    if st.sidebar.button("🗑️ Seçili Varlığı Sil"):
-        if len(st.session_state.varliklar) > 1:
-            st.session_state.varliklar.remove(secilen_varlik)
-            st.session_state.aktif_varlik = st.session_state.varliklar[0]
-            if "aktif_varlik_selectbox" in st.session_state:
-                del st.session_state["aktif_varlik_selectbox"]
-            st.rerun()
-        else:
-            st.sidebar.error("Listede en az bir varlık kalmalıdır.")
-
-    df = veri_cek(secilen_varlik, aralik=aralik)
-
-    if df is not None and not df.empty:
-        df_analiz = hesapla_teknikler(df)
-        analiz = donusum_noktalari_hesapla(df_analiz)
-        sinyal = sinyal_kontrol(df_analiz)
-        
-        if "AL" in sinyal.upper():
-             pozisyon = "🟢 *LONG Pozisyon Al*"
-             stop_loss = analiz['destek'] * 0.99
-        elif "SAT" in sinyal.upper():
-            pozisyon = "🔴 *SHORT Pozisyon Al*"
-            stop_loss = analiz['direnc'] * 1.01
-        else:
-            pozisyon = "⚪ *Nötr / Bekle*"
-            stop_loss = analiz['destek'] * 0.98
-
-        st.title(f"{secilen_varlik} | Piyasa Analizi")
-        st.markdown(piyasa_analizi_yap(df_analiz, sinyal))
-        
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Fiyat", f"{analiz['fiyat']:.2f}")
-        c2.metric("Destek", f"{analiz['destek']:.2f}")
-        c3.metric("Direnç", f"{analiz['direnc']:.2f}")
-        c4.metric("Stop-Loss", f"{stop_loss:.2f}")
-        c5.metric("Pozisyon", sinyal)
-
-        if st.button("📢 Bu Analizi Telegram'a Gönder"):
-            mesaj = f"📊 *Manuel Tekli Pozisyon Analizi*\n\n*Varlık:* `{secilen_varlik}`\n*Fiyat:* `{analiz['fiyat']:.2f}`\n*Tavsiye:* {pozisyon}\n*Stop-Loss:* `{stop_loss:.2f}`\n*Destek:* `{analiz['destek']:.2f}` | *Direnç:* `{analiz['direnc']:.2f}`"
-            telegram_bildirim_gonder(mesaj)
-            st.success("Analiz Telegram'a başarıyla gönderildi!")
-
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(x=df_analiz['tarih'], open=df_analiz['open'], high=df_analiz['high'], low=df_analiz['low'], close=df_analiz['close'], name='Fiyat'))
-        fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['sma_20'], name='SMA 20', line=dict(color='orange', width=1.5)))
-        fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['sma_50'], name='SMA 50', line=dict(color='blue', width=1.5)))
-
-        for i in range(1, len(df_analiz)):
-            fiyat = df_analiz['close'].iloc[i]
-            if df_analiz['sma_20'].iloc[i-1] <= df_analiz['sma_50'].iloc[i-1] and df_analiz['sma_20'].iloc[i] > df_analiz['sma_50'].iloc[i]:
-                fig.add_annotation(x=df_analiz['tarih'].iloc[i], y=df_analiz['low'].iloc[i], text=f"LONG (SL)<br>{fiyat:.2f}", bgcolor="green", font=dict(color="white"), showarrow=True, ay=30)
-            elif df_analiz['sma_20'].iloc[i-1] >= df_analiz['sma_50'].iloc[i-1] and df_analiz['sma_20'].iloc[i] < df_analiz['sma_50'].iloc[i]:
-                fig.add_annotation(x=df_analiz['tarih'].iloc[i], y=df_analiz['high'].iloc[i], text=f"SHORT (SL)<br>{fiyat:.2f}", bgcolor="red", font=dict(color="white"), showarrow=True, ay=-30)
-
-        fig.update_layout(template="plotly_dark", height=600)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning(f"⚠️ **{secilen_varlik}** için veri alınamadı.")
-
-# --- GÖRÜNÜM 2: TÜM LİSTEYİ TOPLU TARAMA VE LİSTE + GRAFİK BUTONU ---
-elif st.session_state.aktif_sekme == "🚀 Toplu Portföy Taraması":
-    st.title("🚀 Tüm Portföy Toplu Tarama Paneli")
-    st.markdown(f"Şu anda takip edilen toplam **{len(st.session_state.varliklar)}** varlık taranmaktadır:")
-
-    with st.expander("➕ Portföye Hızlı Varlık Ekle"):
-        col_ekle1, col_ekle2 = st.columns([3, 1])
-        with col_ekle1:
-            toplu_arama_input = st.text_input("Varlık Kodu", placeholder="Örn: GOOGL, GARAN.IS", key="toplu_ekleme_input").upper().strip()
-        with col_ekle2:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            toplu_ekle_btn = st.button("Listeye Ekle", key="toplu_ekle_action_btn")
-            
-        if toplu_ekle_btn:
-            if toplu_arama_input:
-                mevcut_buyuk = [v.upper() for v in st.session_state.varliklar]
-                if toplu_arama_input not in mevcut_buyuk:
-                    test_df = veri_cek(toplu_arama_input, aralik=aralik)
-                    if test_df is not None and not test_df.empty:
-                        st.session_state.varliklar.append(toplu_arama_input)
-                        st.session_state.aktif_varlik = toplu_arama_input
-                        if "aktif_varlik_selectbox" in st.session_state:
-                            del st.session_state["aktif_varlik_selectbox"]
-                        st.success(f"'{toplu_arama_input}' portföye başarıyla eklendi!")
-                        st.rerun()
-                    else:
-                        st.error("Veri alınamadı! Kodu kontrol edin.")
-                else:
-                    st.warning("Bu varlık zaten listenizde mevcut.")
+                secilenler_havuzu.discard(kod)
+                
+    # Kripto Kolonu
+    with col2:
+        st.subheader("🪙 Kripto Para")
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler[1]].items():
+            if st.checkbox(isim, value=(kod in secilenler_havuzu), key=kod):
+                secilenler_havuzu.add(kod)
             else:
-                st.warning("Lütfen geçerli bir kod girin.")
-
-    col_b1, col_b2 = st.columns(2)
-    with col_b1:
-        if st.button("🔄 Tüm Listeyi Şimdi Yeniden Tara", key="toplu_yenile_btn"):
-            st.rerun()
-    with col_b2:
-        if st.button("📤 Pozisyon ve Stop-Loss Taramasını Telegram'a Gönder", key="manuel_telegram_gonder_btn"):
-            with st.spinner("Portföy taranıyor ve Stop-Loss seviyeleri hesaplanarak Telegram'a aktarılıyor..."):
-                manuel_mesaj = "📊 *Manuel Pozisyon & Stop-Loss Raporu*\n\n"
-                for varlik in st.session_state.varliklar:
-                    df_t = veri_cek(varlik, aralik=aralik)
-                    if df_t is not None and not df_t.empty:
-                        df_t_analiz = hesapla_teknikler(df_t)
-                        p_analiz = donusum_noktalari_hesapla(df_t_analiz)
-                        p_sinyal = sinyal_kontrol(df_t_analiz)
-                        
-                        if "AL" in p_sinyal.upper():
-                            pozisyon = "🟢 *LONG*"
-                            sl = p_analiz['destek'] * 0.99
-                        elif "SAT" in p_sinyal.upper():
-                            pozisyon = "🔴 *SHORT*"
-                            sl = p_analiz['direnc'] * 1.01
-                        else:
-                            pozisyon = "⚪ *NÖTR*"
-                            sl = p_analiz['destek'] * 0.98
-                            
-                        manuel_mesaj += f"• *{varlik}*: Fiyat: `{p_analiz['fiyat']:.2f}` | Tavsiye: {pozisyon} | Stop-Loss: `{sl:.2f}`\n"
-                telegram_bildirim_gonder(manuel_mesaj)
-            st.success("Pozisyon ve Stop-Loss raporu manuel olarak Telegram'a gönderildi!")
+                secilenler_havuzu.discard(kod)
+                
+    # Global Kolonu
+    with col3:
+        st.subheader("🌎 Global & Forex")
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler[2]].items():
+            if st.checkbox(isim, value=(kod in secilenler_havuzu), key=kod):
+                secilenler_havuzu.add(kod)
+            else:
+                secilenler_havuzu.discard(kod)
+                
+    st.divider()
+    
+    # Manuel Ekleme Alanı
+    st.markdown("🎯 **Aradığınız varlık listede yoksa manuel ekleyin:** (Örn: GOOGL, AKBNK.IS)")
+    manuel_kod = st.text_input("Varlık Kodu").upper().strip()
+    if st.button("➕ Özel Varlık Ekle") and manuel_kod:
+        secilenler_havuzu.add(manuel_kod)
+        st.success(f"{manuel_kod} eklendi! Listeyi kaydetmeyi unutmayın.")
         
     st.divider()
-    st.subheader("📋 Portföy Varlıkları ve Stop-Loss İnceleme Listesi")
-    st.markdown("Her bir varlığın pozisyon ve stop-loss seviyelerini aşağıda görebilir, **📈 Grafik** butonuna basarak detaylara geçebilirsiniz:")
+    if st.button("💾 SEÇİMLERİ KAYDET VE BOTA İLET", use_container_width=True, type="primary"):
+        aktif_ayarlar["varliklar"] = list(secilenler_havuzu)
+        ayarlari_kaydet(aktif_ayarlar)
+        st.success("Varlık listeniz başarıyla güncellendi! Bot artık bu listeyi tarayacak.")
+        time.sleep(1)
+        st.rerun()
 
-    with st.spinner("Varlıklar taranıyor ve analizler hazırlanıyor..."):
-        for varlik in st.session_state.varliklar:
-            df_t = veri_cek(varlik, aralik=aralik)
+# --- MENÜ 2: CANLI ANALİZ ---
+elif sayfa == "📈 Canlı Analiz & Portföy":
+    st.title("📈 Canlı Analiz & Portföy")
+    
+    mevcut_varliklar = aktif_ayarlar.get("varliklar", [])
+    if not mevcut_varliklar:
+        st.warning("Henüz portföyünüzde varlık yok. Lütfen 'Varlık Havuzu'ndan seçim yapın.")
+    else:
+        st.markdown(f"Güncel Zaman Dilimi: **{aktif_ayarlar['zaman_dilimi']}**")
+        secili_grafik = st.selectbox("Grafik Analizi İçin Varlık Seçin", mevcut_varliklar)
+        
+        df = veri_cek(secili_grafik, aralik=aktif_ayarlar["zaman_dilimi"])
+        if df is not None and not df.empty:
+            df_analiz = hesapla_teknikler(df)
+            analiz = donusum_noktalari_hesapla(df_analiz)
+            sinyal = sinyal_kontrol(df_analiz)
             
-            with st.container():
-                col1, col2, col3, col4, col5, col6 = st.columns([2, 1.8, 1.8, 1.8, 2, 1.5])
-                
-                if df_t is not None and not df_t.empty:
-                    df_t_analiz = hesapla_teknikler(df_t)
-                    p_analiz = donusum_noktalari_hesapla(df_t_analiz)
-                    p_sinyal = sinyal_kontrol(df_t_analiz)
-                    
-                    if "AL" in p_sinyal.upper():
-                        p_text = "🟢 LONG"
-                        sl_val = p_analiz['destek'] * 0.99
-                    elif "SAT" in p_sinyal.upper():
-                        p_text = "🔴 SHORT"
-                        sl_val = p_analiz['direnc'] * 1.01
-                    else:
-                        p_text = "⚪ NÖTR"
-                        sl_val = p_analiz['destek'] * 0.98
-                    
-                    col1.markdown(f"**{varlik}**")
-                    col2.metric("Fiyat", f"{p_analiz['fiyat']:.2f}")
-                    col3.text(f"Destek: {p_analiz['destek']:.2f}")
-                    col4.text(f"Stop-Loss: {sl_val:.2f}")
-                    col5.markdown(f"**{p_text}**")
-                    
-                    with col6:
-                        if st.button("📈 Grafik", key=f"btn_grafik_{varlik}"):
-                            st.session_state.aktif_varlik = varlik
-                            st.session_state.aktif_sekme = "🔍 Tekli Analiz & Varlık Ekle"
-                            if "aktif_varlik_selectbox" in st.session_state:
-                                del st.session_state["aktif_varlik_selectbox"]
-                            st.rerun()
-                else:
-                    col1.markdown(f"**{varlik}**")
-                    col5.error("Veri Alınamadı")
-                    with col6:
-                        if st.button("📈 Grafik", key=f"btn_grafik_bos_{varlik}"):
-                            st.session_state.aktif_varlik = varlik
-                            st.session_state.aktif_sekme = "🔍 Tekli Analiz & Varlık Ekle"
-                            if "aktif_varlik_selectbox" in st.session_state:
-                                del st.session_state["aktif_varlik_selectbox"]
-                            st.rerun()
-                            
-            st.divider()
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Fiyat", f"{analiz['fiyat']:.2f}")
+            c2.metric("Destek (SL)", f"{analiz['destek']:.2f}")
+            c3.metric("Direnç (TP)", f"{analiz['direnc']:.2f}")
+            c4.metric("Pozisyon", sinyal)
+            
+            # Grafik Çizimi
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(x=df_analiz['tarih'], open=df_analiz['open'], high=df_analiz['high'], low=df_analiz['low'], close=df_analiz['close'], name='Fiyat'))
+            fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['sma_20'], name='SMA 20', line=dict(color='orange')))
+            fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['sma_50'], name='SMA 50', line=dict(color='blue')))
+            fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown(piyasa_analizi_yap(df_analiz, sinyal))
+        else:
+            st.error(f"{secili_grafik} için veri alınamadı. (Piyasa kapalı olabilir veya kod yanlış)")
+
+# --- MENÜ 3: BOT AYARLARI ---
+elif sayfa == "⚙️ Bot Ayarları":
+    st.title("⚙️ Telegram Bot ve Analiz Ayarları")
+    st.markdown("Botun çalışma sıklığını ve teknik analizin hangi zaman dilimine göre yapılacağını buradan belirleyin.")
+    
+    zaman_secenekleri = ["15m", "1h", "4h", "1d"]
+    zaman_index = zaman_secenekleri.index(aktif_ayarlar.get("zaman_dilimi", "1h"))
+    
+    yeni_zaman = st.selectbox(
+        "Teknik Analiz Zaman Dilimi (Mum Grafiği)", 
+        zaman_secenekleri, 
+        index=zaman_index,
+        help="Bot destek/direnç noktalarını hesaplarken bu mum periyodunu baz alır."
+    )
+    
+    siklik_secenekleri = {
+        15: "15 Dakikada Bir Raporla",
+        30: "Yarım Saatte Bir Raporla",
+        60: "Saatte Bir Raporla (Önerilen)",
+        120: "2 Saatte Bir Raporla",
+        240: "4 Saatte Bir Raporla"
+    }
+    
+    mevcut_siklik = aktif_ayarlar.get("bot_sikligi_dk", 60)
+    siklik_degerleri = list(siklik_secenekleri.keys())
+    siklik_index = siklik_degerleri.index(mevcut_siklik) if mevcut_siklik in siklik_degerleri else 2
+    
+    yeni_siklik_etiket = st.selectbox(
+        "Telegram Bildirim Sıklığı", 
+        list(siklik_secenekleri.values()), 
+        index=siklik_index
+    )
+    
+    yeni_siklik = list(siklik_secenekleri.keys())[list(siklik_secenekleri.values()).index(yeni_siklik_etiket)]
+    
+    st.divider()
+    if st.button("💾 AYARLARI KAYDET", use_container_width=True, type="primary"):
+        aktif_ayarlar["zaman_dilimi"] = yeni_zaman
+        aktif_ayarlar["bot_sikligi_dk"] = yeni_siklik
+        ayarlari_kaydet(aktif_ayarlar)
+        st.success(f"Ayarlar kaydedildi! Bot bundan sonra her {yeni_siklik} dakikada bir {yeni_zaman} periyotlu analiz yapacak.")
+        time.sleep(1.5)
+        st.rerun()
