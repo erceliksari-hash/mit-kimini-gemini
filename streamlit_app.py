@@ -112,7 +112,7 @@ if sayfa == "📚 Varlık Havuzu":
         st.rerun()
 
 elif sayfa == "📈 Canlı Analiz & Portföy":
-    st.title("📈 Portföy Analiz Listesi ve Grafik İnceleme")
+    st.title("📈 Portföy Sinyal Listesi ve Grafik Analizi")
     mevcut_varliklar = aktif_ayarlar.get("varliklar", [])
     
     if not mevcut_varliklar:
@@ -121,12 +121,11 @@ elif sayfa == "📈 Canlı Analiz & Portföy":
         st.markdown(f"Aktif Zaman Dilimi Periyodu: **{aktif_ayarlar['zaman_dilimi']}**")
         st.divider()
 
-        # Aktif seçilen grafiği akılda tutmak için session state
         if "secilen_aktif_grafik" not in st.session_state:
             st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
-        # 1. BÖLÜM: LİSTE HALİNDE TÜM VARLIKLAR VE ANALİZ AÇIKLAMALARI
-        st.subheader("📋 Portföy Varlıkları ve Anlık Özetleri")
+        # 1. BÖLÜM: TÜM VARLIKLAR İÇİN LİSTE HALİNDE YÜKSELİŞ/DÜŞÜŞ SİNYALLERİ
+        st.subheader("📋 Seçilen Tüm Varlıkların Sinyal ve Durum Özeti")
         
         for varlik in mevcut_varliklar:
             df_temp = veri_cek(varlik, aralik=aktif_ayarlar["zaman_dilimi"])
@@ -135,17 +134,29 @@ elif sayfa == "📈 Canlı Analiz & Portföy":
                 p_analiz = donusum_noktalari_hesapla(df_t_analiz)
                 p_sinyal = sinyal_kontrol(df_t_analiz)
                 
+                # Yükseliş veya Düşüş durumunu net ikon ve renklerle belirleme
+                if "AL" in p_sinyal.upper() or "UP" in p_sinyal.upper():
+                    durum_metni = "🚀 **YÜKSELİŞTE (LONG Sinyali Aktif)**"
+                elif "SAT" in p_sinyal.upper() or "DOWN" in p_sinyal.upper():
+                    durum_metni = "⚠️ **DÜŞÜŞTE (SHORT Sinyali Aktif)**"
+                else:
+                    durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
+                
                 col_info, col_btn = st.columns([4, 1])
                 with col_info:
-                    st.markdown(f"**🔹 {varlik}** | Fiyat: `{p_analiz['fiyat']:.2f}` | Sinyal: **{p_sinyal}** | Destek: `{p_analiz['destek']:.2f}` | Direnç: `{p_analiz['direnc']:.2f}`")
+                    st.markdown(f"""
+                    🔹 **{varlik}** | Fiyat: `{p_analiz['fiyat']:.2f}`  
+                    Sinyal Durumu: {durum_metni}  
+                    Destek: `{p_analiz['destek']:.2f}` | Direnç: `{p_analiz['direnc']:.2f}`
+                    """)
                 with col_btn:
-                    if st.button(f"📊 Grafiği İncele", key=f"btn_grafik_{varlik}", use_container_width=True):
+                    if st.button(f"📊 Grafiği İncele", key=f"btn_list_{varlik}", use_container_width=True):
                         st.session_state["secilen_aktif_grafik"] = varlik
+                        st.rerun()
+                st.divider()
             else:
                 st.warning(f"🔹 {varlik}: Veri alınamadı.")
 
-        st.divider()
-        
         # 2. BÖLÜM: SEÇİLEN VARLIĞIN DETAYLI GRAFİK İNCELEMESİ
         st.header(f"📊 Detaylı Grafik İncelemesi: `{st.session_state['secilen_aktif_grafik']}`")
 
@@ -208,7 +219,7 @@ elif sayfa == "📈 Canlı Analiz & Portföy":
 
             # Özel İndikatör Çizimi
             if "Özel İndikatörüm" in ek_gostergeler:
-                fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['ozel_indikator'], name='Özel İndikatör', line=dict.values(dict(color='yellow', width=1.5, dash='dash')) if hasattr(dict, 'values') else dict(color='yellow', width=1.5, dash='dash')), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['ozel_indikator'], name='Özel İndikatör', line=dict(color='yellow', width=1.5, dash='dash')), row=1, col=1)
 
             # Alt Grafikler (RSI, MACD)
             guncel_satir = 2
