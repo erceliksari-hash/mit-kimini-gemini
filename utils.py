@@ -1,33 +1,26 @@
 import pandas as pd
-import numpy as np
 
-def donusum_noktalari_hesapla(df):
-    # Temel boşluk kontrolü
-    if df is None or df.empty or 'Close' not in df.columns:
-        return {"destek": 0.0, "direnc": 0.0, "fiyat": 0.0}
+def donusum_noktalari_hesapla(df: pd.DataFrame) -> dict:
+    """
+    Son mum verisine göre pivot, destek ve direnç seviyelerini hesaplar.
+    """
+    if df is None or df.empty:
+        return {"fiyat": 0.0, "pivot": 0.0, "destek": 0.0, "direnc": 0.0}
 
-    # Sadece Close sütununu al (Series olduğundan emin ol)
-    close_series = df['Close']
-    son_20 = close_series.tail(20)
+    son_mum = df.iloc[-1]
 
-    # Değerleri hesapla
-    # .min() ve .max() bazen Seri dönebilir, bu yüzden .item() veya float() ile zorluyoruz
-    destek_val = son_20.min()
-    direnc_val = son_20.max()
-    fiyat_val = close_series.iloc[-1]
+    # Sütun isimleri data_sources.py'da küçük harfe çevrildiği için burada da küçük harf kullanıyoruz
+    yuksek = son_mum["high"]
+    dusuk = son_mum["low"]
+    kapanis = son_mum["close"]
 
-    # Yardımcı fonksiyon: Değer Seri bile olsa onu tek sayıya çevirir
-    def to_float(val):
-        try:
-            # Eğer val bir Seri ise, içindeki ilk değeri al veya tek sayıya düşür
-            if isinstance(val, (pd.Series, pd.DataFrame)):
-                val = val.iloc[0]
-            return float(val)
-        except (ValueError, TypeError, IndexError):
-            return 0.0
+    pivot = (yuksek + dusuk + kapanis) / 3
+    destek = (2 * pivot) - yuksek
+    direnc = (2 * pivot) - dusuk
 
     return {
-        "destek": to_float(destek_val),
-        "direnc": to_float(direnc_val),
-        "fiyat": to_float(fiyat_val)
+        "fiyat": round(float(kapanis), 2),
+        "pivot": round(float(pivot), 2),
+        "destek": round(float(destek), 2),
+        "direnc": round(float(direnc), 2),
     }
