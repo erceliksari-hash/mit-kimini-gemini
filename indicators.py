@@ -13,18 +13,23 @@ def hesapla_teknikler(df):
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
 
-    # YENİ: Bollinger Bantları (20 Periyot, 2 Standart Sapma)
+    # Bollinger Bantları (20 Periyot, 2 Standart Sapma)
     df['bollinger_ust'] = df['sma_20'] + 2 * df['close'].rolling(window=20).std()
     df['bollinger_alt'] = df['sma_20'] - 2 * df['close'].rolling(window=20).std()
 
-    # YENİ: MACD (12, 26, 9)
+    # MACD (12, 26, 9)
     exp1 = df['close'].ewm(span=12, adjust=False).mean()
     exp2 = df['close'].ewm(span=26, adjust=False).mean()
     df['macd'] = exp1 - exp2
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
 
-    # YENİ: Grafikte İşaretlenecek Tarihsel Long/Short Sinyalleri 
-    # SMA 20, SMA 50'yi yukarı keserse AL (1), aşağı keserse SAT (-1)
+    # ==============================================================================
+    # 🎯 KULLANICININ ÖZEL İNDİKATÖRÜ (İleride buraya formülünü yazabilirsin)
+    # ==============================================================================
+    # Örnek: df['ozel_indikator'] = df['close'].rolling(window=10).mean() * 1.02
+    df['ozel_indikator'] = df['close'].rolling(window=10).mean() # Şimdilik örnek bir ortalama
+
+    # Tarihsel Long/Short Sinyalleri 
     df['sinyal_tarihsel'] = 0
     df.loc[(df['sma_20'] > df['sma_50']) & (df['sma_20'].shift(1) <= df['sma_50'].shift(1)), 'sinyal_tarihsel'] = 1
     df.loc[(df['sma_20'] < df['sma_50']) & (df['sma_20'].shift(1) >= df['sma_50'].shift(1)), 'sinyal_tarihsel'] = -1
