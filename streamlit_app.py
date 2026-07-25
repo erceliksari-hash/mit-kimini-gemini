@@ -194,7 +194,7 @@ sayfa = st.sidebar.radio(
 )
 st.sidebar.divider()
 
-# VARLIK LİSTELERİ
+# VARLIK LİSTELERİ (Küresel Emtialar ve Fonlar / ETF'ler Eklendi)
 HAZIR_VARLIKLAR = {
     "BIST 100 Kapsamlı Liste": {
         "THYAO (Türk Hava Yolları)": "THYAO.IS",
@@ -340,17 +340,30 @@ HAZIR_VARLIKLAR = {
         "Nike (NKE)": "NKE",
         "Philip Morris (PM)": "PM",
     },
+    "Küresel Emtialar ve Fonlar": {
+        "Altın (Gold Ons)": "GC=F",
+        "Gümüş (Silver Ons)": "SI=F",
+        "Ham Petrol (Crude Oil)": "CL=F",
+        "Brent Petrol": "BZ=F",
+        "Doğalgaz (Natural Gas)": "NG=F",
+        "Vanguard S&P 500 ETF (VOO)": "VOO",
+        "Vanguard Total Stock Market (VTI)": "VTI",
+        "Invesco QQQ (Nasdaq 100 ETF)": "QQQ",
+        "iShares Gold Trust (GLD)": "GLD",
+        "iShares Silver Trust (SLV)": "SLV",
+    }
 }
 
 if sayfa == "📚 Varlık Havuzu":
     st.title("📚 Varlık Havuzu ve Piyasalar")
     secilenler = set(aktif_ayarlar["varliklar"])
 
-    tab_bist, tab_kripto, tab_nasdaq, tab_sp500 = st.tabs([
+    tab_bist, tab_kripto, tab_nasdaq, tab_sp500, tab_emtia_fon = st.tabs([
         "🇹🇷 BIST 100",
         "🪙 Kripto (İlk 50)",
         "💻 NASDAQ",
         "📈 S&P 500",
+        "🛢️ Fonlar & Emtialar",
     ])
 
     kategoriler_listesi = list(HAZIR_VARLIKLAR.keys())
@@ -383,6 +396,14 @@ if sayfa == "📚 Varlık Havuzu":
         st.subheader("S&P 500 Liderleri ve ETF")
         for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[3]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hs_{kod}"):
+                secilenler.add(kod)
+            else:
+                secilenler.discard(kod)
+
+    with tab_emtia_fon:
+        st.subheader("Küresel Emtialar ve Fonlar / ETF'ler")
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[4]].items():
+            if st.checkbox(isim, value=(kod in secilenler), key=f"hef_{kod}"):
                 secilenler.add(kod)
             else:
                 secilenler.discard(kod)
@@ -876,84 +897,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                         "autoScale2d",
                         "resetScale2d",
                         "drawline",
-                        "drawopenpath",
-                        "eraseshape",
-                    ],
-                },
+                    ]
+                }
             )
-
-            st.subheader("🕒 Geçmiş Sinyal Geçişleri ve Sahte Sinyal Analizi")
-            if "sinyal_tarihsel" in df_analiz.columns:
-                gecmis_sinyaller = df_analiz[df_analiz["sinyal_tarihsel"] != 0].copy()
-                if not gecmis_sinyaller.empty:
-                    tablo_verisi = []
-                    for _, row in gecmis_sinyaller.tail(10).iterrows():
-                        t_tip = (
-                            "🟢 Yükselişe Geçiş (AL)"
-                            if row["sinyal_tarihsel"] == 1
-                            else "🔴 Düşüşe Geçiş (SAT)"
-                        )
-                        s_durum = (
-                            "⚠️ Sahte/Zayıf Sinyal"
-                            if row.get("sahte_sinyal", False)
-                            else "✅ Geçerli Sinyal"
-                        )
-                        tablo_verisi.append({
-                            "Zaman": row["tarih"],
-                            "Fiyat": round(row["close"], 4),
-                            "Geçiş Tipi": t_tip,
-                            "Durum Değerlendirmesi": s_durum,
-                        })
-                    st.dataframe(
-                        pd.DataFrame(tablo_verisi),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                else:
-                    st.info("Bu periyotta henüz kayıtlı bir sinyal geçişi bulunmuyor.")
-
-elif sayfa == "⚙️ Bot Ayarları":
-    st.title("⚙️ Ayarlar")
-
-    zaman_secenekleri = ["15m", "30m", "1h", "2h", "4h", "1d"]
-    mevcut_zaman = aktif_ayarlar.get("zaman_dilimi", "1h")
-    zaman_index = (
-        zaman_secenekleri.index(mevcut_zaman)
-        if mevcut_zaman in zaman_secenekleri
-        else 2
-    )
-
-    yeni_zaman = st.selectbox(
-        "Teknik Analiz ve Grafik Zaman Dilimi",
-        zaman_secenekleri,
-        index=zaman_index,
-    )
-
-    sikliklar = {
-        15: "15 Dakika",
-        30: "Yarım Saat",
-        60: "1 Saat",
-        120: "2 Saat",
-        240: "4 Saat",
-    }
-    mevcut_siklik = aktif_ayarlar.get("bot_sikligi_dk", 60)
-    yeni_siklik_etiket = st.selectbox(
-        "Telegram Bildirim Sıklığı",
-        list(sikliklar.values()),
-        index=list(sikliklar.keys()).index(mevcut_siklik)
-        if mevcut_siklik in sikliklar
-        else 2,
-    )
-    yeni_siklik = list(sikliklar.keys())[
-        list(sikliklar.values()).index(yeni_siklik_etiket)
-    ]
-
-    if st.button("💾 AYARLARI KAYDET", type="primary"):
-        aktif_ayarlar["zaman_dilimi"], aktif_ayarlar["bot_sikligi_dk"] = (
-            yeni_zaman,
-            yeni_siklik,
-        )
-        ayarlari_kaydet(aktif_ayarlar)
-        st.success("Ayarlar başarıyla kaydedildi!")
-        time.sleep(1)
-        st.rerun()
