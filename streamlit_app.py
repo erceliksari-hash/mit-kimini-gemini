@@ -436,6 +436,36 @@ if sayfa == "📚 Varlık Havuzu":
         time.sleep(1)
         st.rerun()
 
+elif sayfa == "⚙️ Bot Ayarları":
+    st.title("⚙️ Bot ve Zaman Dilimi Ayarları")
+    st.markdown("Otomatik tarama botunun çalışma sıklığını ve analiz periyodunu buradan yapılandırabilirsiniz.")
+
+    zaman_dilimleri = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+    mevcut_zaman_dilimi = aktif_ayarlar.get("zaman_dilimi", "1h")
+    
+    secilen_zaman_dilimi = st.selectbox(
+        "Veri Zaman Dilimi (Periyot)",
+        zaman_dilimleri,
+        index=zaman_dilimleri.index(mevcut_zaman_dilimi) if mevcut_zaman_dilimi in zaman_dilimleri else 4
+    )
+
+    mevcut_siklik = aktif_ayarlar.get("bot_sikligi_dk", 60)
+    secilen_siklik = st.number_input(
+        "Otomatik Telegram Bildirim Sıklığı (Dakika)",
+        min_value=1,
+        value=int(mevcut_siklik),
+        step=1
+    )
+
+    st.divider()
+    if st.button("💾 Ayarları Kaydet", type="primary", use_container_width=True):
+        aktif_ayarlar["zaman_dilimi"] = secilen_zaman_dilimi
+        aktif_ayarlar["bot_sikligi_dk"] = int(secilen_siklik)
+        ayarlari_kaydet(aktif_ayarlar)
+        st.success("Bot ayarları başarıyla güncellendi!")
+        time.sleep(1)
+        st.rerun()
+
 elif sayfa == "💼 Portföy Yönetimi":
     st.title("💼 Portföy Yönetimi ve Detaylı Analiz")
 
@@ -645,7 +675,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
                 gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
 
-                # Yükseliş veya Düşüş geçişine göre sahte sinyal durumunu ayrıntılı belirleme
                 fake_durum_str = "Evet ⚠️ (Sahte / Zayıf Sinyal)" if is_fake else "Hayır ✅ (Güvenli Sinyal)"
 
                 if "AL" in p_sinyal.upper() or "YÜKSELİŞ" in p_sinyal.upper():
@@ -668,7 +697,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                     f"   • Sahte Sinyal: `{'Evet ⚠️' if is_fake else 'Hayır ✅'}`\n\n"
                 )
 
-                # Arayüzde yükselişe/düşüşe geçişte sahte sinyal durumunun gösterilmesi
                 col_info, col_btn = st.columns([4, 1])
                 with col_info:
                     st.markdown(
@@ -761,7 +789,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 row_heights=row_heights,
             )
 
-            # 1. Mum Grafik (Candlestick)
             fig.add_trace(
                 go.Candlestick(
                     x=df_analiz["tarih"],
@@ -775,7 +802,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 col=1,
             )
 
-            # --- SİNYAL İŞARETLERİ (AL / SAT - LONG / SHORT) ---
             if "sinyal_tarihsel" in df_analiz.columns:
                 df_al = df_analiz[df_analiz["sinyal_tarihsel"] == 1]
                 df_sat = df_analiz[df_analiz["sinyal_tarihsel"] == -1]
