@@ -1,5 +1,4 @@
-
-config_py = '''import os
+import os
 from dotenv import load_dotenv
 
 # .env dosyasını yükle (yerel geliştirme için)
@@ -29,9 +28,3 @@ DEFAULT_SETTINGS = {
 AYAR_DOSYASI = "ayarlar.json"
 PORTFOY_DOSYASI = "portfoy_arsiv.json"
 SANAL_CUZDAN_DOSYASI = "sanal_cuzdan_arsiv.json"
-'''
-
-with open("/mnt/agents/output/config.py", "w", encoding="utf-8") as f:
-    f.write(config_py)
-
-print("✅ config.py oluşturuldu")
