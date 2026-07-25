@@ -1,4 +1,3 @@
-import time
 import os
 import json
 import urllib.request
@@ -15,12 +14,23 @@ def telegram_bildir(mesaj):
         return
     try:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
-        data = urllib.parse.urlencode({"chat_id": chat_id, "text": mesaj}).encode("utf-8")
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": mesaj, "parse_mode": "Markdown"}).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST")
         with urllib.request.urlopen(req) as response:
             pass
     except Exception as e:
         print(f"Telegram bildirim hatası: {e}")
+
+def varlik_listesini_yukle():
+    # Öncelikli olarak JSON dosyasından okumaya çalışır, yoksa varsayılan döndürür
+    try:
+        if os.path.exists("secilen_varliklar.json"):
+            with open("secilen_varliklar.json", "r", encoding="utf-8") as f:
+                veri = json.load(f)
+                return veri.get("varliklar", ["BTC/USDT", "ETH/USDT"])
+    except Exception as e:
+        print(f"Liste okuma hatası: {e}")
+    return ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"]
 
 def varlik_verilerini_cek(varlik):
     try:
@@ -51,8 +61,9 @@ def teknik_analiz_hesapla(df):
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
         
-        df['Support'] = df['Close'] * 0.98
-        df['Resistance'] = df['Close'] * 1.02
+        # Tepe noktası ve direnç/destek hesaplamaları
+        df['Support'] = df['Close'].rolling(window=14).min() * 0.99
+        df['Resistance'] = df['Close'].rolling(window=14).max() * 1.01
         df['MACD_Status'] = 'NÖTR'
         df['Signal'] = 'BEKLE'
         return df
@@ -61,12 +72,12 @@ def teknik_analiz_hesapla(df):
         return df
 
 def otonom_bot_dongusu():
-    print("🤖 Otonom Sanal Cüzdan Botu Başlatıldı (7/24 Modu)...")
+    print("🤖 Otonom Akıllı Ticaret Botu Başlatıldı...")
     
-    takip_listesi = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"]
+    takip_listesi = varlik_listesini_yukle()
     zaman_damgasi = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    rapor_metni = f"🤖 **Otonom Tur Başladı**\n📅 Zaman: {zaman_damgasi}\n\n"
+    rapor_metni = f"🤖 **Otonom Piyasa Turu**\n📅 Zaman: `{zaman_damgasi}`\n\n"
     
     for varlik in takip_listesi:
         df = varlik_verilerini_cek(varlik)
@@ -83,11 +94,12 @@ def otonom_bot_dongusu():
             continue
             
         d1 = float(son_veri.get('Support', fiyat * 0.98))
-        r1 = float(son_veri.get('Resistance', fiyat * 1.02))
+        r1 = float(son_veri.get('Resistance', fiyat * 1.02)) # Tepe / Direnç noktası
         rsi = float(son_veri.get('RSI', 50))
         macd = str(son_veri.get('MACD_Status', 'NÖTR'))
         p_sinyal = str(son_veri.get('Signal', 'BEKLE'))
         
+        # Yapay zekadan al/sat ve tepe analizi kararı
         karar, gerekce = ai_akilli_karar_ver(
             varlik=varlik, 
             fiyat=fiyat, 
@@ -98,10 +110,13 @@ def otonom_bot_dongusu():
             macd_durumu=macd
         )
         
-        rapor_metni += f"🔹 **{varlik}**\n💰 Fiyat: `{fiyat}`\n🎯 Karar: **{karar}**\n📝 Gerekçe: {gerekce}\n\n"
-        print(f"Varlık: {varlik} | Fiyat: {fiyat} | Karar: {karar}")
+        rapor_metni += f"🔹 **{varlik}**\n"
+        rapor_metni += f"💰 Fiyat: `{fiyat:.4f}`\n"
+        rapor_metni += f"🎯 Hedef Tepe/Direnç: `{r1:.4f}`\n"
+        rapor_metni += f"📊 RSI: `{rsi:.1f}` | Karar: **{karar}**\n"
+        rapor_metni += f"📝 {gerekce}\n\n"
 
-    # Toplu raporu Telegram'a gönder
+    # Telegram'a gönder
     telegram_bildir(rapor_metni)
 
 if __name__ == "__main__":
