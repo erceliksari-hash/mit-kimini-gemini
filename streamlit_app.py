@@ -854,28 +854,14 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
 
         if df is not None and not df.empty:
             df_analiz = hesapla_teknikler(df)
-            analiz = donusum_noktalari_hesapla(df_analiz)
-            sinyal = sinyal_kontrol(df_analiz)
-
-            satir_sayisi = 1
-            row_heights = [0.7]
-            if "RSI (Alt Grafik)" in ek_gostergeler:
-                satir_sayisi += 1
-                row_heights.append(0.2)
-            if "MACD (Alt Grafik)" in ek_gostergeler:
-                satir_sayisi += 1
-                row_heights.append(0.2)
-            if satir_sayisi == 1:
-                row_heights = [1]
-
+            
             fig = make_subplots(
-                rows=satir_sayisi,
-                cols=1,
-                shared_xaxes=True,
-                vertical_spacing=0.03,
-                row_heights=row_heights,
+                rows=2, cols=1, 
+                shared_xaxes=True, 
+                vertical_spacing=0.03, 
+                row_heights=[0.7, 0.3]
             )
-
+            
             fig.add_trace(
                 go.Candlestick(
                     x=df_analiz["tarih"],
@@ -883,136 +869,34 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                     high=df_analiz["high"],
                     low=df_analiz["low"],
                     close=df_analiz["close"],
-                    name="Fiyat",
+                    name="Fiyat"
                 ),
-                row=1,
-                col=1,
+                row=1, col=1
             )
-
-            if "sinyal_tarihsel" in df_analiz.columns:
-                df_al = df_analiz[df_analiz["sinyal_tarihsel"] == 1]
-                df_sat = df_analiz[df_analiz["sinyal_tarihsel"] == -1]
-
-                if not df_al.empty:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=df_al["tarih"],
-                            y=df_al["low"] * 0.99,
-                            mode="markers+text",
-                            text=["AL (Long)" for _ in range(len(df_al))],
-                            textposition="bottom center",
-                            marker=dict(symbol="triangle-up", size=14, color="#00FF7F"),
-                            name="Yükselişe Geçiş (AL)",
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-                if not df_sat.empty:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=df_sat["tarih"],
-                            y=df_sat["high"] * 1.01,
-                            mode="markers+text",
-                            text=["SAT (Short)" for _ in range(len(df_sat))],
-                            textposition="top center",
-                            marker=dict(symbol="triangle-down", size=14, color="#FF4500"),
-                            name="Düşüşe Geçiş (SAT)",
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-            fig.add_hline(
-                y=analiz["destek"],
-                line_dash="dot",
-                line_color="green",
-                annotation_text="Destek (SL Referansı)",
-                row=1,
-                col=1,
-            )
-            fig.add_hline(
-                y=analiz["direnc"],
-                line_dash="dot",
-                line_color="red",
-                annotation_text="Direnç (TP Referansı)",
-                row=1,
-                col=1,
-            )
-
-            if "Bollinger Bantları" in ek_gostergeler:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df_analiz["tarih"],
-                        y=df_analiz["bollinger_ust"],
-                        name="Bol. Üst",
-                        line=dict(color="rgba(173,216,230,0.5)", width=1, dash="dash"),
-                    ),
-                    row=1,
-                    col=1,
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=df_analiz["tarih"],
-                        y=df_analiz["bollinger_alt"],
-                        name="Bol. Alt",
-                        fill="tonexty",
-                        fillcolor="rgba(173,216,230,0.1)",
-                        line=dict(color="rgba(173,216,230,0.5)", width=1, dash="dash"),
-                    ),
-                    row=1,
-                    col=1,
-                )
-
-            guncel_satir = 2
-            if "RSI (Alt Grafik)" in ek_gostergeler:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df_analiz["tarih"],
-                        y=df_analiz["rsi"],
-                        name="RSI",
-                        line=dict(color="purple", width=1.5),
-                    ),
-                    row=guncel_satir,
-                    col=1,
-                )
-                guncel_satir += 1
-
-            if "MACD (Alt Grafik)" in ek_gostergeler:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df_analiz["tarih"],
-                        y=df_analiz["macd"],
-                        name="MACD",
-                        line=dict(color="blue"),
-                    ),
-                    row=guncel_satir,
-                    col=1,
-                )
-
+            
+            if "Bollinger Bantları" in ek_gostergeler and "bb_ust" in df_analiz.columns:
+                fig.add_trace(go.Scatter(x=df_analiz["tarih"], y=df_analiz["bb_ust"], line=dict(color="rgba(250, 0, 0, 0.5)", width=1), name="BB Üst"), row=1, col=1)
+                fig.add_trace(go.Scatter(x=df_analiz["tarih"], y=df_analiz["bb_alt"], line=dict(color="rgba(0, 250, 0, 0.5)", width=1), name="BB Alt", fill='tonenexty'), row=1, col=1)
+            
+            if "Özel İndikatörüm" in ek_gostergeler and "ozel_gosterge" in df_analiz.columns:
+                fig.add_trace(go.Scatter(x=df_analiz["tarih"], y=df_analiz["ozel_gosterge"], line=dict(color="orange", width=1.5), name="Özel İndikatör"), row=1, col=1)
+            
+            if "RSI (Alt Grafik)" in ek_gostergeler and "rsi" in df_analiz.columns:
+                fig.add_trace(go.Scatter(x=df_analiz["tarih"], y=df_analiz["rsi"], line=dict(color="purple", width=1.5), name="RSI"), row=2, col=1)
+                fig.add_hrect(y0=30, y1=70, fillcolor="gray", opacity=0.1, layer="below", line_width=0, row=2, col=1)
+            
+            elif "MACD (Alt Grafik)" in ek_gostergeler and "macd" in df_analiz.columns:
+                fig.add_trace(go.Scatter(x=df_analiz["tarih"], y=df_analiz["macd"], line=dict(color="blue", width=1.5), name="MACD"), row=2, col=1)
+                if "macd_signal" in df_analiz.columns:
+                    fig.add_trace(go.Scatter(x=df_analiz["tarih"], y=df_analiz["macd_signal"], line=dict(color="orange", width=1.5), name="Signal"), row=2, col=1)
+            
             fig.update_layout(
                 template="plotly_dark",
-                height=650 if satir_sayisi == 1 else 850,
-                margin=dict(l=0, r=0, t=30, b=0),
                 xaxis_rangeslider_visible=False,
-                dragmode=drag_mode_val,
-                hovermode="x unified",
+                height=700,
+                margin=dict(l=10, r=10, t=30, b=10)
             )
-
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-                config={
-                    "scrollZoom": True,
-                    "displayModeBar": True,
-                    "modeBarButtonsToAdd": [
-                        "pan2d",
-                        "zoom2d",
-                        "zoomIn2d",
-                        "zoomOut2d",
-                        "autoScale2d",
-                        "resetScale2d",
-                        "drawline",
-                    ]
-                }
-            )
+            
+            st.plotly_chart(fig, use_container_width=True, config={"dragmode": drag_mode_val})
+        else:
+            st.error("Seçilen varlık için veri yüklenemedi.")
