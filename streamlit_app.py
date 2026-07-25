@@ -435,7 +435,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
 
         # Sahte Sinyal ve Geçiş Kontrolleri
         is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
-        gecis_tipi = df_t_analiz.iloc[-1].get("gecis_durumu", "Nötr")
         gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
 
         if is_fake:
@@ -470,23 +469,25 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
 
     st.divider()
     st.header(
-        "📊 Gelişmiş Grafik İncelemesi ve Kaydırma Kontrolleri:"
+        "📊 Gelişmiş Grafik İncelemesi ve İnteraktif Modlar:"
         f" `{st.session_state['secilen_aktif_grafik']}`"
     )
 
     # Kullanıcıya Grafik Etkileşim Modu Seçeneği (Kaydırma / Zoom)
     col_mod1, col_mod2 = st.columns(2)
     with col_mod1:
-      grafik_modu = st.radio(
-          "Fare Modu:",
-          ["Zoom (Yakınlaştır/Uzaklaştır)", "Kaydırma / Pan (Grafiği Sürükle)"],
-          horizontal=True,
+      grafik_modu = st.selectbox(
+          "Grafik Fare Modu (Etkileşim):",
+          [
+              "🔍 Zoom (Yakınlaştır/Uzaklaştır)",
+              "✋ Kaydırma / Pan (Grafiği Sürükle)",
+          ],
       )
     drag_mode_val = "pan" if "Kaydırma" in grafik_modu else "zoom"
 
     st.info(
-        "💡 **İpucu:** Kaydırma modunu seçerek grafiği mouse ile sağa sola"
-        " rahatça sürükleyebilirsiniz."
+        "💡 **İpucu:** Fare tekerleğiyle (Scroll) her zaman zoom yapabilir,"
+        " yukarıdaki menüden veya butonlardan modu değiştirebilirsin."
     )
 
     ek_gostergeler = st.multiselect(
@@ -611,7 +612,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           height=650 if satir_sayisi == 1 else 850,
           margin=dict(l=0, r=0, t=30, b=0),
           xaxis_rangeslider_visible=False,
-          dragmode=drag_mode_val,  # Kaydırma veya Zoom modu
+          dragmode=drag_mode_val,  # Kullanıcının seçtiği Kaydırma veya Zoom modu
           hovermode="x unified",
       )
 
@@ -624,6 +625,10 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
               "modeBarButtonsToAdd": [
                   "pan2d",
                   "zoom2d",
+                  "zoomIn2d",
+                  "zoomOut2d",
+                  "autoScale2d",
+                  "resetScale2d",
                   "drawline",
                   "drawopenpath",
                   "eraseshape",
@@ -634,9 +639,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
       # --- GEÇİŞ ZAMANLARI VE SAHTE SİNYAL DETAY TABLOSU ---
       st.subheader("🕒 Geçmiş Sinyal Geçişleri ve Sahte Sinyal Analizi")
       if "sinyal_tarihsel" in df_analiz.columns:
-        gecmis_sinyaller = df_analiz[df_analiz["sinyal_tarihsel"] != 0].copy(
-            вища=True
-        )
+        gecmis_sinyaller = df_analiz[df_analiz["sinyal_tarihsel"] != 0].copy()
         if not gecmis_sinyaller.empty:
           tablo_verisi = []
           for _, row in gecmis_sinyaller.tail(10).iterrows():
@@ -666,12 +669,20 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
 
 elif sayfa == "⚙️ Bot Ayarları":
   st.title("⚙️ Ayarlar")
-  zaman_secenekleri = ["15m", "1h", "4h", "1d"]
-  zaman_index = zaman_secenekleri.index(
-      aktif_ayarlar.get("zaman_dilimi", "1h")
+
+  # Güncellenmiş zaman dilimi seçenekleri (30m ve 2h dahil edildi)
+  zaman_secenekleri = ["15m", "30m", "1h", "2h", "4h", "1d"]
+  mevcut_zaman = aktif_ayarlar.get("zaman_dilimi", "1h")
+  zaman_index = (
+      zaman_secenekleri.index(mevcut_zaman)
+      if mevcut_zaman in zaman_secenekleri
+      else 2
   )
+
   yeni_zaman = st.selectbox(
-      "Teknik Analiz Zaman Dilimi", zaman_secenekleri, index=zaman_index
+      "Teknik Analiz ve Grafik Zaman Dilimi",
+      zaman_secenekleri,
+      index=zaman_index,
   )
 
   sikliklar = {
