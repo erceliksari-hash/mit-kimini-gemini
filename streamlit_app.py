@@ -28,7 +28,7 @@ st.markdown(
 AYAR_DOSYASI = "ayarlar.json"
 PORTFOY_DOSYASI = "portfoy_arsiv.json"
 VARSAYILAN_AYARLAR = {
-    "varliklar": ["BTC-USD", "THYAO.IS", "AAPL"],
+    "varliklar": ["BTC-USD", "THYAO.IS", "AAPL", "SPY"],
     "zaman_dilimi": "1h",
     "bot_sikligi_dk": 60,
 }
@@ -186,8 +186,9 @@ sayfa = st.sidebar.radio(
 )
 st.sidebar.divider()
 
+# YENİLENMİŞ VE GENİŞLETİLMİŞ VARLIK LİSTELERİ
 HAZIR_VARLIKLAR = {
-    "BIST 100 Seçkisi": {
+    "BIST 100 Kapsamlı Liste": {
         "THYAO (Türk Hava Yolları)": "THYAO.IS",
         "GARAN (Garanti BBVA)": "GARAN.IS",
         "ISMEN (İş Yatırım)": "ISMEN.IS",
@@ -208,6 +209,21 @@ HAZIR_VARLIKLAR = {
         "ARCLK (Arçelik)": "ARCLK.IS",
         "ENKAI (Enka İnşaat)": "ENKAI.IS",
         "ODAS (Odaş Elektrik)": "ODAS.IS",
+        "MGROS (Migros Ticaret)": "MGROS.IS",
+        "KRDMD (Kardemir D)": "KRDMD.IS",
+        "TCELL (Turkcell)": "TCELL.IS",
+        "TTKOM (Türk Telekom)": "TTKOM.IS",
+        "OYAKC (Oyak Çimento)": "OYAKC.IS",
+        "KOZAL (Koza Altın)": "KOZAL.IS",
+        "SOKM (Şok Marketler)": "SOKM.IS",
+        "VESTL (Vestel)": "VESTL.IS",
+        "ALARK (Alarko Holding)": "ALARK.IS",
+        "GUBRF (Gübre Fabrikaları)": "GUBRF.IS",
+        "TKFEN (Tekfen Holding)": "TKFEN.IS",
+        "HALKB (Halkbank)": "HALKB.IS",
+        "VAKBN (VakıfBank)": "VAKBN.IS",
+        "TSKB (T.S.K.B.)": "TSKB.IS",
+        "ZOREN (Zorlu Enerji)": "ZOREN.IS",
     },
     "Kripto (İlk 50 / Popüler)": {
         "Bitcoin (BTC)": "BTC-USD",
@@ -219,7 +235,7 @@ HAZIR_VARLIKLAR = {
         "Dogecoin (DOGE)": "DOGE-USD",
         "Polkadot (DOT)": "DOT-USD",
         "Chainlink (LINK)": "LINK-USD",
-        "Polygon (MATIC)": "MATIC-USD",
+        "Polygon (MATIC / POL)": "MATIC-USD",
         "Uniswap (UNI)": "UNI-USD",
         "Litecoin (LTC)": "LTC-USD",
         "Near Protocol (NEAR)": "NEAR-USD",
@@ -230,6 +246,31 @@ HAZIR_VARLIKLAR = {
         "Optimism (OP)": "OP-USD",
         "Ethereum Classic (ETC)": "ETC-USD",
         "Filecoin (FIL)": "FIL-USD",
+        "Internet Computer (ICP)": "ICP-USD",
+        "Immutable (IMX)": "IMX-USD",
+        "Render (RNDR)": "RNDR-USD",
+        "Injective (INJ)": "INJ-USD",
+        "Celestia (TIA)": "TIA-USD",
+        "Stacks (STX)": "STX-USD",
+        "The Graph (GRT)": "GRT-USD",
+        "Sei (SEI)": "SEI-USD",
+        "Fetch.ai (FET)": "FET-USD",
+        "Kaspa (KAS)": "KAS-USD",
+        "Hedera (HBAR)": "HBAR-USD",
+        "Stellar (XLM)": "XLM-USD",
+        "Algorand (ALGO)": "ALGO-USD",
+        "VeChain (VET)": "VET-USD",
+        "Theta Network (THETA)": "THETA-USD",
+        "Fantom (FTM)": "FTM-USD",
+        "Decentraland (MANA)": "MANA-USD",
+        "The Sandbox (SAND)": "SAND-USD",
+        "Axie Infinity (AXS)": "AXS-USD",
+        "Aave (AAVE)": "AAVE-USD",
+        "Maker (MKR)": "MKR-USD",
+        "Shiba Inu (SHIB)": "SHIB-USD",
+        "Pepe (PEPE)": "PEPE-USD",
+        "Floki (FLOKI)": "FLOKI-USD",
+        "Bonk (BONK)": "BONK-USD",
     },
     "NASDAQ Liderleri": {
         "Apple (AAPL)": "AAPL",
@@ -247,6 +288,21 @@ HAZIR_VARLIKLAR = {
         "PayPal (PYPL)": "PYPL",
         "PepsiCo (PEP)": "PEP",
         "Costco (COST)": "COST",
+        "Broadcom (AVGO)": "AVGO",
+        "Cisco Systems (CSCO)": "CSCO",
+        "T-Mobile (TMUS)": "TMUS",
+        "Texas Instruments (TXN)": "TXN",
+        "Amgen (AMGN)": "AMGN",
+        "Starbucks (SBUX)": "SBUX",
+        "Mondelez (MDLZ)": "MDLZ",
+        "Automatic Data Processing (ADP)": "ADP",
+        "Gilead Sciences (GILD)": "GILD",
+        "Intuitive Surgical (ISRG)": "ISRG",
+        "Booking Holdings (BKNG)": "BKNG",
+        "Micron Technology (MU)": "MU",
+        "Lam Research (LRCX)": "LRCX",
+        "Palo Alto Networks (PANW)": "PANW",
+        "Synopsys (SNPS)": "SNPS",
     },
     "S&P 500 Liderleri": {
         "S&P 500 ETF (SPY)": "SPY",
@@ -262,6 +318,19 @@ HAZIR_VARLIKLAR = {
         "Home Depot (HD)": "HD",
         "Walt Disney (DIS)": "DIS",
         "Bank of America (BAC)": "BAC",
+        "Chevron (CVX)": "CVX",
+        "AbbVie (ABBV)": "ABBV",
+        "Pfizer (PFE)": "PFE",
+        "Coca-Cola (KO)": "KO",
+        "Merck & Co (MRK)": "MRK",
+        "Thermo Fisher Scientific (TMO)": "TMO",
+        "Abbott Laboratories (ABBT / ABT)": "ABT",
+        "Accenture (ACN)": "ACN",
+        "Wells Fargo (WFC)": "WFC",
+        "McDonald's (MCD)": "MCD",
+        "Danaher (DHR)": "DHR",
+        "Nike (NKE)": "NKE",
+        "Philip Morris (PM)": "PM",
     },
 }
 
@@ -279,7 +348,7 @@ if sayfa == "📚 Varlık Havuzu":
   kategoriler_listesi = list(HAZIR_VARLIKLAR.keys())
 
   with tab_bist:
-    st.subheader("BIST 100 Seçkisi")
+    st.subheader("BIST 100 Kapsamlı Seçkisi")
     for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[0]].items():
       if st.checkbox(isim, value=(kod in secilenler), key=f"hb_{kod}"):
         secilenler.add(kod)
