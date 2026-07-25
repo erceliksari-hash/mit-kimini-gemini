@@ -1,3 +1,4 @@
+import streamlit as st
 import datetime
 import json
 import os
@@ -7,7 +8,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
-import streamlit as st
 
 from config import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 from data_sources import veri_cek
