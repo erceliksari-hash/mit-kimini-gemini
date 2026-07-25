@@ -22,7 +22,6 @@ def telegram_bildir(mesaj):
         print(f"Telegram bildirim hatası: {e}")
 
 def varlik_listesini_yukle():
-    # Öncelikli olarak JSON dosyasından okumaya çalışır, yoksa varsayılan döndürür
     try:
         if os.path.exists("secilen_varliklar.json"):
             with open("secilen_varliklar.json", "r", encoding="utf-8") as f:
@@ -61,7 +60,6 @@ def teknik_analiz_hesapla(df):
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
         
-        # Tepe noktası ve direnç/destek hesaplamaları
         df['Support'] = df['Close'].rolling(window=14).min() * 0.99
         df['Resistance'] = df['Close'].rolling(window=14).max() * 1.01
         df['MACD_Status'] = 'NÖTR'
@@ -94,12 +92,11 @@ def otonom_bot_dongusu():
             continue
             
         d1 = float(son_veri.get('Support', fiyat * 0.98))
-        r1 = float(son_veri.get('Resistance', fiyat * 1.02)) # Tepe / Direnç noktası
+        r1 = float(son_veri.get('Resistance', fiyat * 1.02))
         rsi = float(son_veri.get('RSI', 50))
         macd = str(son_veri.get('MACD_Status', 'NÖTR'))
         p_sinyal = str(son_veri.get('Signal', 'BEKLE'))
         
-        # Yapay zekadan al/sat ve tepe analizi kararı
         karar, gerekce = ai_akilli_karar_ver(
             varlik=varlik, 
             fiyat=fiyat, 
@@ -112,11 +109,10 @@ def otonom_bot_dongusu():
         
         rapor_metni += f"🔹 **{varlik}**\n"
         rapor_metni += f"💰 Fiyat: `{fiyat:.4f}`\n"
-        rapor_metni += f"🎯 Hedef Tepe/Direnç: `{r1:.4f}`\n"
+        rapor_metni += f"🎯 Hedef Direnç: `{r1:.4f}`\n"
         rapor_metni += f"📊 RSI: `{rsi:.1f}` | Karar: **{karar}**\n"
         rapor_metni += f"📝 {gerekce}\n\n"
 
-    # Telegram'a gönder
     telegram_bildir(rapor_metni)
 
 if __name__ == "__main__":
