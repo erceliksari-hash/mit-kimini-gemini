@@ -194,7 +194,7 @@ sayfa = st.sidebar.radio(
 )
 st.sidebar.divider()
 
-# VARLIK LİSTELERİ (Küresel Emtialar ve Fonlar / ETF'ler Eklendi)
+# VARLIK LİSTELERİ
 HAZIR_VARLIKLAR = {
     "BIST 100 Kapsamlı Liste": {
         "THYAO (Türk Hava Yolları)": "THYAO.IS",
