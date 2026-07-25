@@ -28,7 +28,7 @@ st.markdown(
 AYAR_DOSYASI = "ayarlar.json"
 PORTFOY_DOSYASI = "portfoy_arsiv.json"
 VARSAYILAN_AYARLAR = {
-    "varliklar": ["BTC-USD", "THYAO.IS", "AAPL", "SPY"],
+    "varliklar": ["AAPL", "BTC-USD", "SPY", "THYAO.IS"],
     "zaman_dilimi": "1h",
     "bot_sikligi_dk": 60,
 }
@@ -64,6 +64,30 @@ def portfoy_yukle():
 def portfoy_kaydet(portfoy_verisi):
     with open(PORTFOY_DOSYASI, "w") as f:
         json.dump(portfoy_verisi, f)
+
+
+# --- İNTERNETTEN VARLIK ARAMA FONKSİYONU ---
+def internette_varlik_ara(sorgu):
+    try:
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={sorgu}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, timeout=5)
+        data = response.json()
+        quotes = data.get("quotes", [])
+        sonuclar = []
+        for q in quotes:
+            symbol = q.get("symbol")
+            shortname = q.get("shortname", q.get("longname", symbol))
+            exchange = q.get("exchDisp", q.get("exchange", ""))
+            if symbol:
+                sonuclar.append({
+                    "symbol": symbol,
+                    "name": shortname,
+                    "exchange": exchange,
+                })
+        return sonuclar
+    except:
+        return []
 
 
 # --- TELEGRAM BOT VE OTOMATİK RAPORLAMA ---
@@ -415,7 +439,7 @@ if sayfa == "📚 Varlık Havuzu":
         ozel_kodlar = sorted([k for k in secilenler if k not in tum_hazir_kodlar])
         
         if not ozel_kodlar:
-            st.info("Henüz özel olarak eklenmiş ek bir varlık bulunmuyor. Aşağıdaki alandan yeni özel varlık ekleyebilirsiniz.")
+            st.info("Henüz özel olarak eklenmiş ek bir varlık bulunmuyor. Aşağıdaki alandan yeni özel varlık aratıp ekleyebilirsiniz.")
         else:
             for kod in ozel_kodlar:
                 if st.checkbox(f"Özel Varlık: {kod}", value=(kod in secilenler), key=f"ozel_{kod}"):
@@ -424,21 +448,37 @@ if sayfa == "📚 Varlık Havuzu":
                     secilenler.discard(kod)
 
     st.divider()
-    manuel = (
-        st.text_input(
-            "🎯 Listede olmayan başka bir varlık eklemek isterseniz kodunu"
-            " yazın (Örn: TSLA, ETH-USD vb.)"
-        )
-        .upper()
-        .strip()
-    )
-    if st.button("➕ Özel Varlık Ekle") and manuel:
-        secilenler.add(manuel)
-        aktif_ayarlar["varliklar"] = sorted(list(secilenler))
-        ayarlari_kaydet(aktif_ayarlar)
-        st.success(f"{manuel} eklendi!")
-        time.sleep(0.5)
-        st.rerun()
+    st.subheader("🔎 İnternetten Varlık Arama ve Ekleme")
+    st.markdown("Bir varlığın adını, kısaltmasını veya onu andıran bir kelimeyi yazın (Örn: *Apple*, *Garanti*, *Ethereum*), sistem doğru kodu internetten bulsun.")
+    
+    if "arama_sonuclari" not in st.session_state:
+        st.session_state["arama_sonuclari"] = []
+
+    arama_sorgusu = st.text_input("Arama Kelimesi veya Kısaltma", key="arama_input")
+
+    col_ara1, col_ara2 = st.columns([1, 4])
+    with col_ara1:
+        if st.button("🔍 İnternette Ara"):
+            if arama_sorgusu:
+                with st.spinner("Varlık aranıyor..."):
+                    st.session_state["arama_sonuclari"] = internette_varlik_ara(arama_sorgusu)
+                    if not st.session_state["arama_sonuclari"]:
+                        st.warning("Eşleşen varlık bulunamadı.")
+
+    if st.session_state["arama_sonuclari"]:
+        st.markdown("---")
+        secenekler = {f"{item['symbol']} — {item['name']} ({item['exchange']})": item['symbol'] for item in st.session_state["arama_sonuclari"]}
+        secilen_etiket = st.selectbox("Bulunan Sonuçlar:", list(secenekler.keys()), key="secilen_arama_sonucu")
+        
+        if st.button("➕ Seçilen Varlığı Listeye Ekle", type="primary"):
+            secilen_kod = secenekler[secilen_etiket]
+            secilenler.add(secilen_kod)
+            aktif_ayarlar["varliklar"] = sorted(list(secilenler))
+            ayarlari_kaydet(aktif_ayarlar)
+            st.success(f"{secilen_kod} başarıyla eklendi ve kaydedildi!")
+            st.session_state["arama_sonuclari"] = []
+            time.sleep(0.5)
+            st.rerun()
 
     st.divider()
     if st.button(
