@@ -8,7 +8,7 @@ from indicators import hesapla_teknikler, sinyal_kontrol
 from utils import donusum_noktalari_hesapla
 
 SANAL_CUZDAN_DOSYASI = "sanal_cuzdan.json"
-ISLEM_BASINA_TUTAR = 1000.0 # Bot her sinyalde en fazla 1000$ lık alım yapar
+ISLEM_BASINA_TUTAR = 1000.0  # Bot her sinyalde en fazla 1000$ lık alım yapar
 
 def cuzdan_yukle():
     if not os.path.exists(SANAL_CUZDAN_DOSYASI):
@@ -62,7 +62,7 @@ def otonom_islem_karari(varlik, df_analiz, sinyal, fiyat):
             }
             islem_yapildi = True
             mesaj = (
-                f"🤖 *OTONOM İŞLEM: ALIM YASILDI* 🟢\n"
+                f"🤖 *OTONOM İŞLEM: ALIM YAPILDI* 🟢\n"
                 f"🔹 *Varlık:* `{varlik}`\n"
                 f"🔹 *Alış Fiyatı:* `{fiyat:.2f}$`\n"
                 f"🔹 *Miktar:* `{alinacak_adet:.4f} Lot`\n"
