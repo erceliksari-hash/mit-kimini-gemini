@@ -2,7 +2,7 @@ name: Otonom Finans Botu
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Her 6 saatte bir
+    - cron: '0 * * * *'  # Her saat başı otomatik çalışır
   workflow_dispatch:
     inputs:
       mode:
