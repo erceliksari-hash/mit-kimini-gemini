@@ -187,40 +187,134 @@ sayfa = st.sidebar.radio(
 st.sidebar.divider()
 
 HAZIR_VARLIKLAR = {
-    "BIST 30 Hisseleri": {
+    "BIST 100 Seçkisi": {
         "THYAO (Türk Hava Yolları)": "THYAO.IS",
-        "ISMEN (İş Yatırım)": "ISMEN.IS",
         "GARAN (Garanti BBVA)": "GARAN.IS",
+        "ISMEN (İş Yatırım)": "ISMEN.IS",
         "ASELS (Aselsan)": "ASELS.IS",
-        "EREGL (Ereğli)": "EREGL.IS",
+        "EREGL (Ereğli Demir Çelik)": "EREGL.IS",
+        "KCHOL (Koç Holding)": "KCHOL.IS",
+        "SAHOL (Sabancı Holding)": "SAHOL.IS",
+        "TUPRS (Tüpraş)": "TUPRS.IS",
+        "BIMAS (BİM Mağazalar)": "BIMAS.IS",
+        "AKBNK (Akbank)": "AKBNK.IS",
+        "FROTO (Ford Otosan)": "FROTO.IS",
+        "PGSUS (Pegasus)": "PGSUS.IS",
+        "PETKM (Petkim)": "PETKM.IS",
+        "SASA (Sasa Polyester)": "SASA.IS",
+        "HEKTS (Hektaş)": "HEKTS.IS",
+        "YKBNK (Yapı Kredi)": "YKBNK.IS",
+        "TOASO (Tofaş)": "TOASO.IS",
+        "ARCLK (Arçelik)": "ARCLK.IS",
+        "ENKAI (Enka İnşaat)": "ENKAI.IS",
+        "ODAS (Odaş Elektrik)": "ODAS.IS",
     },
-    "Kripto Paralar": {
-        "Bitcoin": "BTC-USD",
-        "Ethereum": "ETH-USD",
-        "Solana": "SOL-USD",
-        "Ripple": "XRP-USD",
+    "Kripto (İlk 50 / Popüler)": {
+        "Bitcoin (BTC)": "BTC-USD",
+        "Ethereum (ETH)": "ETH-USD",
+        "Solana (SOL)": "SOL-USD",
+        "Ripple (XRP)": "XRP-USD",
+        "Cardano (ADA)": "ADA-USD",
+        "Avalanche (AVAX)": "AVAX-USD",
+        "Dogecoin (DOGE)": "DOGE-USD",
+        "Polkadot (DOT)": "DOT-USD",
+        "Chainlink (LINK)": "LINK-USD",
+        "Polygon (MATIC)": "MATIC-USD",
+        "Uniswap (UNI)": "UNI-USD",
+        "Litecoin (LTC)": "LTC-USD",
+        "Near Protocol (NEAR)": "NEAR-USD",
+        "Cosmos (ATOM)": "ATOM-USD",
+        "Aptos (APT)": "APT-USD",
+        "Sui (SUI)": "SUI-USD",
+        "Arbitrum (ARB)": "ARB-USD",
+        "Optimism (OP)": "OP-USD",
+        "Ethereum Classic (ETC)": "ETC-USD",
+        "Filecoin (FIL)": "FIL-USD",
     },
-    "Global & Emtia": {"Apple": "AAPL", "Tesla": "TSLA", "Altın (ONS)": "GC=F"},
+    "NASDAQ Liderleri": {
+        "Apple (AAPL)": "AAPL",
+        "Microsoft (MSFT)": "MSFT",
+        "Alphabet / Google (GOOGL)": "GOOGL",
+        "Amazon (AMZN)": "AMZN",
+        "NVIDIA (NVDA)": "NVDA",
+        "Tesla (TSLA)": "TSLA",
+        "Meta Platforms (META)": "META",
+        "Netflix (NFLX)": "NFLX",
+        "Advanced Micro Devices (AMD)": "AMD",
+        "Intel (INTC)": "INTC",
+        "Qualcomm (QCOM)": "QCOM",
+        "Adobe (ADBE)": "ADBE",
+        "PayPal (PYPL)": "PYPL",
+        "PepsiCo (PEP)": "PEP",
+        "Costco (COST)": "COST",
+    },
+    "S&P 500 Liderleri": {
+        "S&P 500 ETF (SPY)": "SPY",
+        "Berkshire Hathaway (BRK-B)": "BRK-B",
+        "JPMorgan Chase (JPM)": "JPM",
+        "Visa (V)": "V",
+        "UnitedHealth (UNH)": "UNH",
+        "Johnson & Johnson (JNJ)": "JNJ",
+        "Exxon Mobil (XOM)": "XOM",
+        "Walmart (WMT)": "WMT",
+        "Mastercard (MA)": "MA",
+        "Procter & Gamble (PG)": "PG",
+        "Home Depot (HD)": "HD",
+        "Walt Disney (DIS)": "DIS",
+        "Bank of America (BAC)": "BAC",
+    },
 }
 
 if sayfa == "📚 Varlık Havuzu":
-  st.title("📚 Varlık Havuzu")
+  st.title("📚 Varlık Havuzu ve Piyasalar")
   secilenler = set(aktif_ayarlar["varliklar"])
 
-  c1, c2, c3 = st.columns(3)
-  kats = list(HAZIR_VARLIKLAR.keys())
-  for col, kat in zip([c1, c2, c3], kats):
-    with col:
-      st.subheader(kat)
-      for isim, kod in HAZIR_VARLIKLAR[kat].items():
-        if st.checkbox(isim, value=(kod in secilenler), key=kod):
-          secilenler.add(kod)
-        else:
-          secilenler.discard(kod)
+  tab_bist, tab_kripto, tab_nasdaq, tab_sp500 = st.tabs([
+      "🇹🇷 BIST 100",
+      "🪙 Kripto (İlk 50)",
+      "💻 NASDAQ",
+      "📈 S&P 500",
+  ])
+
+  kategoriler_listesi = list(HAZIR_VARLIKLAR.keys())
+
+  with tab_bist:
+    st.subheader("BIST 100 Seçkisi")
+    for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[0]].items():
+      if st.checkbox(isim, value=(kod in secilenler), key=f"hb_{kod}"):
+        secilenler.add(kod)
+      else:
+        secilenler.discard(kod)
+
+  with tab_kripto:
+    st.subheader("Kripto Para Piyasası (İlk 50 / Popüler)")
+    for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[1]].items():
+      if st.checkbox(isim, value=(kod in secilenler), key=f"hk_{kod}"):
+        secilenler.add(kod)
+      else:
+        secilenler.discard(kod)
+
+  with tab_nasdaq:
+    st.subheader("NASDAQ Teknoloji Liderleri")
+    for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[2]].items():
+      if st.checkbox(isim, value=(kod in secilenler), key=f"hn_{kod}"):
+        secilenler.add(kod)
+      else:
+        secilenler.discard(kod)
+
+  with tab_sp500:
+    st.subheader("S&P 500 Liderleri ve ETF")
+    for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[3]].items():
+      if st.checkbox(isim, value=(kod in secilenler), key=f"hs_{kod}"):
+        secilenler.add(kod)
+      else:
+        secilenler.discard(kod)
+
   st.divider()
   manuel = (
       st.text_input(
-          "🎯 Aradığınız varlık listede yoksa kodunu girin (Örn: FROTO.IS)"
+          "🎯 Listede olmayan başka bir varlık eklemek isterseniz kodunu"
+          " yazın (Örn: TSLA, ETH-USD vb.)"
       )
       .upper()
       .strip()
@@ -572,13 +666,11 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           fig.add_trace(
               go.Scatter(
                   x=df_al["tarih"],
-                  y=df_al["low"] * 0.99,  # Mumun hemen altında
+                  y=df_al["low"] * 0.99,
                   mode="markers+text",
                   text=["AL (Long)" for _ in range(len(df_al))],
                   textposition="bottom center",
-                  marker=dict(
-                      symbol="triangle-up", size=14, color="#00FF7F"
-                  ),  # Parlak Yeşil Üçgen
+                  marker=dict(symbol="triangle-up", size=14, color="#00FF7F"),
                   name="Yükselişe Geçiş (AL)",
               ),
               row=1,
@@ -589,13 +681,11 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           fig.add_trace(
               go.Scatter(
                   x=df_sat["tarih"],
-                  y=df_sat["high"] * 1.01,  # Mumun hemen üstünde
+                  y=df_sat["high"] * 1.01,
                   mode="markers+text",
                   text=["SAT (Short)" for _ in range(len(df_sat))],
                   textposition="top center",
-                  marker=dict(
-                      symbol="triangle-down", size=14, color="#FF4500"
-                  ),  # Parlak Kırmızı Üçgen
+                  marker=dict(symbol="triangle-down", size=14, color="#FF4500"),
                   name="Düşüşe Geçiş (SAT)",
               ),
               row=1,
