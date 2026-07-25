@@ -1,106 +1,148 @@
-# bot_servisi.py
 import json
 import os
 import time
+import requests
 from config import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 from data_sources import veri_cek
 from indicators import hesapla_teknikler, sinyal_kontrol
-import requests
 from utils import donusum_noktalari_hesapla
 
+SANAL_CUZDAN_DOSYASI = "sanal_cuzdan.json"
+ISLEM_BASINA_TUTAR = 1000.0 # Bot her sinyalde en fazla 1000$ lık alım yapar
 
-def ayarlari_yukle():
-    if os.path.exists("ayarlar.json"):
-        with open("ayarlar.json", "r") as f:
+def cuzdan_yukle():
+    if not os.path.exists(SANAL_CUZDAN_DOSYASI):
+        baslangic = {
+            "bakiye": 10000.0, 
+            "baslangic_bakiyesi": 10000.0,
+            "pozisyonlar": {}, 
+            "gecmis_islemler": []
+        }
+        with open(SANAL_CUZDAN_DOSYASI, "w") as f:
+            json.dump(baslangic, f)
+        return baslangic
+    try:
+        with open(SANAL_CUZDAN_DOSYASI, "r") as f:
             return json.load(f)
-    return {"varliklar": ["BTC-USD"], "zaman_dilimi": "1h", "bot_sikligi_dk": 60}
+    except:
+        return {"bakiye": 10000.0, "baslangic_bakiyesi": 10000.0, "pozisyonlar": {}, "gecmis_islemler": []}
 
+def cuzdan_kaydet(cuzdan):
+    with open(SANAL_CUZDAN_DOSYASI, "w") as f:
+        json.dump(cuzdan, f)
 
 def telegram_bildirim_gonder(mesaj):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mesaj,
-        "parse_mode": "Markdown",
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mesaj, "parse_mode": "Markdown"}
     try:
         requests.post(url, json=payload, timeout=10)
     except:
         pass
 
+def otonom_islem_karari(varlik, df_analiz, sinyal, fiyat):
+    cuzdan = cuzdan_yukle()
+    bakiye = cuzdan["bakiye"]
+    pozisyonlar = cuzdan["pozisyonlar"]
+    
+    sinyal_ust = sinyal.upper()
+    islem_yapildi = False
+    mesaj = ""
 
-def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
-    fiyat = p_analiz["fiyat"]
-    d1 = p_analiz["destek"]
-    r1 = p_analiz["direnc"]
+    # ALIM KARARI (Sadece listede yoksa ve bakiye yeterliyse)
+    if ("AL" in sinyal_ust or "YÜKSELİŞ" in sinyal_ust) and varlik not in pozisyonlar:
+        if bakiye >= ISLEM_BASINA_TUTAR:
+            alinacak_adet = ISLEM_BASINA_TUTAR / fiyat
+            cuzdan["bakiye"] -= ISLEM_BASINA_TUTAR
+            cuzdan["pozisyonlar"][varlik] = {
+                "maliyet": fiyat,
+                "adet": alinacak_adet,
+                "tarih": time.strftime('%Y-%m-%d %H:%M')
+            }
+            islem_yapildi = True
+            mesaj = (
+                f"🤖 *OTONOM İŞLEM: ALIM YASILDI* 🟢\n"
+                f"🔹 *Varlık:* `{varlik}`\n"
+                f"🔹 *Alış Fiyatı:* `{fiyat:.2f}$`\n"
+                f"🔹 *Miktar:* `{alinacak_adet:.4f} Lot`\n"
+                f"🔹 *Yorum:* Güçlü yükseliş trendi tespit edildi. Teknik indikatörler destekliyor. Portföye eklendi."
+            )
+            
+    # SATIM KARARI (Listede varsa ve sat sinyali geldiyse)
+    elif ("SAT" in sinyal_ust or "DÜŞÜŞ" in sinyal_ust) and varlik in pozisyonlar:
+        pozisyon = pozisyonlar[varlik]
+        satis_tutari = pozisyon["adet"] * fiyat
+        kar_zarar = satis_tutari - (pozisyon["adet"] * pozisyon["maliyet"])
+        kar_zarar_yuzde = (kar_zarar / (pozisyon["adet"] * pozisyon["maliyet"])) * 100
+        
+        cuzdan["bakiye"] += satis_tutari
+        
+        # Geçmişe kaydet
+        cuzdan["gecmis_islemler"].append({
+            "varlik": varlik,
+            "alis_fiyati": pozisyon["maliyet"],
+            "satis_fiyati": fiyat,
+            "kar_zarar_usd": kar_zarar,
+            "yuzde": kar_zarar_yuzde,
+            "tarih": time.strftime('%Y-%m-%d %H:%M')
+        })
+        
+        del cuzdan["pozisyonlar"][varlik]
+        islem_yapildi = True
+        
+        durum_ikon = "✅ KÂR" if kar_zarar > 0 else "❌ ZARAR"
+        mesaj = (
+            f"🤖 *OTONOM İŞLEM: SATIŞ YAPILDI* 🔴\n"
+            f"🔹 *Varlık:* `{varlik}`\n"
+            f"🔹 *Satış Fiyatı:* `{fiyat:.2f}$`\n"
+            f"🔹 *Kâr/Zarar:* `{kar_zarar:+.2f}$` (%{kar_zarar_yuzde:+.2f}) {durum_ikon}\n"
+            f"🔹 *Yorum:* Trendin döndüğü veya düşüş sinyallerinin arttığı tespit edildi. Risk almamak için pozisyon kapatıldı."
+        )
 
-    s1, s2, s3 = d1, d1 * 0.985, d1 * 0.970
-    r1_val, r2, r3 = r1, r1 * 1.015, r1 * 1.030
-
-    stop_loss = s1 if s1 < fiyat else fiyat * 0.97
-    take_profit = r1_val if r1_val > fiyat else fiyat * 1.05
-    is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
-
-    sinyal_ust = p_sinyal.upper()
-    if "AL" in sinyal_ust or "YÜKSELİŞ" in sinyal_ust:
-        trend_yorum = "📈 *Yükseliş Trendi Hâkim.*"
-        gecis_yorum = f"Yükseliş Teyit Eşiği: `{r1_val:.2f}`"
-    elif "SAT" in sinyal_ust or "DÜŞÜŞ" in sinyal_ust:
-        trend_yorum = "📉 *Düşüş Baskısı Hâkim.*"
-        gecis_yorum = f"Düşüş Derinleşme Eşiği: `{s1:.2f}`"
-    else:
-        trend_yorum = "⚖️ *Yatay Seyir.*"
-        gecis_yorum = f"Kırılım: `{r1_val:.2f}` Üstü / `{s1:.2f}` Altı"
-
-    sahte_yorum = (
-        "⚠️ *SİNYAL UYARISI:* Sahte/Tuzak sinyal riski!"
-        if is_fake
-        else "✅ *GÜVENİLİR SİNYAL*"
-    )
-
-    return (
-        f"🔹 *{varlik}*\n"
-        f"   • *Fiyat:* `{fiyat:.2f}` | *Sinyal:* `{p_sinyal}`\n"
-        f"   • *Destekler:* `{s1:.2f}` | `{s2:.2f}` | `{s3:.2f}`\n"
-        f"   • *Dirençler:* `{r1_val:.2f}` | `{r2:.2f}` | `{r3:.2f}`\n"
-        f"   • *SL:* `{stop_loss:.2f}` | *TP:* `{take_profit:.2f}`\n"
-        f"   • *Yorum:* {trend_yorum} ({gecis_yorum})\n"
-        f"   • *Durum:* {sahte_yorum}\n\n"
-    )
+    if islem_yapildi:
+        cuzdan_kaydet(cuzdan)
+        telegram_bildirim_gonder(mesaj)
 
 
 def ana_dongu():
-    print("🤖 Telegram Bot Servisi 7/24 Modunda Çalışıyor...")
+    print("🤖 Otonom Sanal Trader 7/24 Devrede...")
+    
+    # Botun fırsat arayacağı ekstra geniş kripto listesi (Araştırma Havuzu)
+    kesif_havuzu = ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD", "XRP-USD", "ADA-USD", "LINK-USD", "MATIC-USD"]
+
     while True:
         try:
-            ayarlar = ayarlari_yukle()
-            varliklar = sorted(ayarlar.get("varliklar", []))
+            # Önce kullanıcının kendi ayarladığı sabit listeyi al
+            if os.path.exists("ayarlar.json"):
+                with open("ayarlar.json", "r") as f:
+                    ayarlar = json.load(f)
+            else:
+                ayarlar = {"varliklar": ["BTC-USD"], "zaman_dilimi": "1h", "bot_sikligi_dk": 60}
+            
+            sabit_varliklar = ayarlar.get("varliklar", [])
             zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
             bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
 
-            if varliklar:
-                mesaj = f"📊 *7/24 Otomatik Analiz Raporu* ({zaman_dilimi})\n\n"
-                for varlik in varliklar:
-                    df = veri_cek(varlik, aralik=zaman_dilimi)
-                    if df is not None and not df.empty:
-                        df_analiz = hesapla_teknikler(df)
-                        p_analiz = donusum_noktalari_hesapla(df_analiz)
-                        p_sinyal = sinyal_kontrol(df_analiz)
-                        mesaj += detayli_analiz_ve_yorum_olustur(
-                            varlik, df_analiz, p_analiz, p_sinyal
-                        )
-                telegram_bildirim_gonder(mesaj)
-                print(
-                    f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Rapor Telegram'a"
-                    " gönderildi."
-                )
+            # Sabit liste ve Keşif havuzunu birleştirip tekrar edenleri temizle
+            tarama_listesi = list(set(sabit_varliklar + kesif_havuzu))
+
+            for varlik in tarama_listesi:
+                df = veri_cek(varlik, aralik=zaman_dilimi)
+                if df is not None and not df.empty:
+                    df_analiz = hesapla_teknikler(df)
+                    p_analiz = donusum_noktalari_hesapla(df_analiz)
+                    p_sinyal = sinyal_kontrol(df_analiz)
+                    guncel_fiyat = p_analiz["fiyat"]
+                    
+                    # Otonom al-sat karar motorunu çağır
+                    otonom_islem_karari(varlik, df_analiz, p_sinyal, guncel_fiyat)
+                    
+            time.sleep(bekleme_suresi)
+            
         except Exception as e:
-            print(f"Hata oluştu: {e}")
-
-        time.sleep(bekleme_suresi)
-
+            print(f"Hata: {e}")
+            time.sleep(60)
 
 if __name__ == "__main__":
     ana_dongu()
