@@ -17,6 +17,9 @@ from config import (
 from data_sources import veri_cek
 from indicators import hesapla_teknikler, piyasa_analizi_yap, sinyal_kontrol
 from utils import donusum_noktalari_hesapla, strateji_hesapla
+from news_sentiment import varlik_haber_analizi, tum_varliklar_haber_raporu
+from multi_timeframe import coklu_zaman_dilimi_analiz, coklu_tf_rapor
+from ai_memory import hafiza_yukle, basari_istatistikleri, ogrenme_raporu_olustur, kararlari_degerlendir
 
 st.set_page_config(page_title="Pro Finans Paneli", layout="wide")
 st.markdown(
@@ -576,6 +579,9 @@ sayfa = st.sidebar.radio(
     [
         "📚 Varlık Havuzu",
         "📈 Canlı Analiz & Sinyaller",
+        "📰 Haber & Sentiment",
+        "📊 Çoklu Zaman Dilimi",
+        "🧠 AI Hafıza & Öğrenme",
         "🤖 Otonom Sanal Cüzdan",
         "💼 Portföy Yönetimi",
         "⏳ Geriye Dönük Test",
@@ -709,6 +715,57 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
     else:
         secilen_varlik = st.selectbox("Analiz Edilecek Varlık", varliklar)
 
+        # ─── TOPLU ANALİZ BUTONU ───
+        st.subheader("📊 Toplu Varlık Analizi")
+        if st.button("🔍 Tüm Varlıkları Analiz Et", type="primary", use_container_width=True):
+            with st.spinner(f"{len(varliklar)} varlık analiz ediliyor..."):
+                toplu_rapor = "📊 *TOPLU VARLIK ANALİZİ*\n"
+                toplu_rapor += f"📅 `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}`\n\n"
+
+                for v in varliklar:
+                    try:
+                        df_v = veri_cek(v, aralik=zaman_dilimi)
+                        if df_v is None or df_v.empty:
+                            toplu_rapor += f"⚠️ `{v}`: Veri alınamadı\n\n"
+                            continue
+
+                        df_v_a = hesapla_teknikler(df_v)
+                        p_v = donusum_noktalari_hesapla(df_v_a)
+                        p_v_s = sinyal_kontrol(df_v_a)
+
+                        son_v = df_v_a.iloc[-1]
+                        rsi_v = son_v.get("rsi", 50)
+                        macd_v = son_v.get("macd_durumu", "NÖTR")
+                        ema20_v = son_v.get("ema_20", p_v["fiyat"])
+                        ema50_v = son_v.get("ema_50", p_v["fiyat"])
+                        trend_v = "YUKARI" if ema20_v > ema50_v else "AŞAĞI" if ema20_v < ema50_v else "YATAY"
+
+                        ai_k_v, _ = ai_akilli_karar_ver(
+                            varlik=v, fiyat=p_v["fiyat"],
+                            d1=p_v["destek"], r1=p_v["direnc"],
+                            p_sinyal=p_v_s, rsi=rsi_v,
+                            macd_durumu=macd_v, trend=trend_v
+                        )
+
+                        trend_emoji = "📈" if trend_v == "YUKARI" else "📉" if trend_v == "AŞAĞI" else "⚖️"
+                        toplu_rapor += (
+                            f"🔹 *{v}* {trend_emoji}\n"
+                            f"   Fiyat: `{p_v['fiyat']:.4f}` | AI: `{ai_k_v}` | Sinyal: `{p_v_s}`\n"
+                            f"   RSI: `{rsi_v:.1f}` | MACD: `{macd_v}` | Trend: `{trend_v}`\n"
+                            f"   S: `{p_v['s1']:.2f}` | R: `{p_v['r1']:.2f}`\n\n"
+                        )
+                    except Exception as e:
+                        toplu_rapor += f"❌ `{v}`: Hata - {str(e)[:50]}\n\n"
+
+                st.success("Analiz tamamlandı!")
+                st.markdown(toplu_rapor.replace("\n", "  \n"))
+
+                if st.button("📱 Telegram'a Gönder", key="toplu_tg"):
+                    telegram_bildirim_gonder(toplu_rapor)
+                    st.success("Telegram'a gönderildi!")
+
+        st.divider()
+
         if secilen_varlik:
             with st.spinner("Veri çekiliyor..."):
                 df = veri_cek(secilen_varlik, aralik=zaman_dilimi)
@@ -834,7 +891,164 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 st.error("Veri çekilemedi veya boş.")
 
 
-# ─── SAYFA 3: OTONOM CÜZDAN ───
+
+# ─── SAYFA 3: HABER & SENTIMENT ───
+elif sayfa == "📰 Haber & Sentiment":
+    st.title("📰 Haber ve Sentiment Analizi")
+    st.markdown("Google News üzerinden varlık haberlerini çeker ve duygu analizi yapar.")
+
+    varliklar = aktif_ayarlar.get("varliklar", [])
+
+    if not varliklar:
+        st.warning("Varlık havuzunda hiç varlık yok.")
+    else:
+        secilen_varlik = st.selectbox("Varlık Seçin", varliklar)
+        haber_limit = st.slider("Haber Sayısı", 3, 20, 10)
+
+        if st.button("🔍 Haberleri Çek ve Analiz Et", type="primary"):
+            with st.spinner("Haberler çekiliyor..."):
+                analiz = varlik_haber_analizi(secilen_varlik, limit=haber_limit)
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Ortalama Sentiment", f"{analiz['ortalama_sentiment']:+.1f}")
+            col2.metric("Durum", analiz['durum'])
+            col3.metric("Haber Sayısı", len(analiz['haberler']))
+
+            st.subheader("📋 Haber Listesi")
+            for haber in analiz['haberler']:
+                skor = haber.get('sentiment_skoru', 0)
+                renk = "🟢" if skor > 15 else "🔴" if skor < -15 else "⚪"
+                with st.expander(f"{renk} {haber['title'][:80]}..."):
+                    st.write(f"**Kaynak:** {haber.get('source', 'Bilinmiyor')}")
+                    st.write(f"**Tarih:** {haber.get('pub_date', 'Bilinmiyor')}")
+                    st.write(f"**Sentiment Skoru:** {skor:+.1f}")
+                    st.write(f"[Habere Git]({haber['link']})")
+
+        st.divider()
+        if st.button("📰 Tüm Varlıklar İçin Rapor Gönder (Telegram)", type="primary"):
+            with st.spinner("Rapor hazırlanıyor..."):
+                rapor = tum_varliklar_haber_raporu(varliklar, limit_per_varlik=5)
+                telegram_bildirim_gonder(rapor)
+                st.success("Telegram'a gönderildi!")
+
+
+# ─── SAYFA 4: ÇOKLU ZAMAN DİLİMİ ───
+elif sayfa == "📊 Çoklu Zaman Dilimi":
+    st.title("📊 Çoklu Zaman Dilimi Analizi")
+    st.markdown("Aynı varlık için farklı periyotlarda (1h, 4h, 1d) analiz yapar ve uyum skoru hesaplar.")
+
+    varliklar = aktif_ayarlar.get("varliklar", [])
+
+    if not varliklar:
+        st.warning("Varlık havuzunda hiç varlık yok.")
+    else:
+        secilen_varlik = st.selectbox("Varlık Seçin", varliklar)
+
+        col_tf1, col_tf2, col_tf3 = st.columns(3)
+        with col_tf1:
+            tf1 = st.selectbox("TF 1", ["15m", "30m", "1h", "4h", "1d"], index=2)
+        with col_tf2:
+            tf2 = st.selectbox("TF 2", ["1h", "4h", "1d", "1wk"], index=1)
+        with col_tf3:
+            tf3 = st.selectbox("TF 3", ["4h", "1d", "1wk", "1mo"], index=2)
+
+        if st.button("🔍 Çoklu TF Analizi Yap", type="primary"):
+            with st.spinner("Analiz yapılıyor..."):
+                sonuc = coklu_zaman_dilimi_analiz(secilen_varlik, [tf1, tf2, tf3])
+
+            st.subheader("🎯 Sonuç")
+            col_r1, col_r2, col_r3 = st.columns(3)
+            col_r1.metric("Uyum Skoru", f"{sonuc['uyum_skoru']}/100")
+            col_r2.metric("Durum", sonuc['onay_durumu'])
+            col_r3.metric("Toplam Puan", sonuc['toplam_puan'])
+
+            st.info(f"💡 **Tavsiye:** {sonuc['tavsiye']}")
+
+            st.subheader("📋 Zaman Dilimi Detayları")
+            for tf, analiz in sonuc["analizler"].items():
+                with st.expander(f"⏱️ {tf}"):
+                    if "hata" in analiz:
+                        st.error(analiz["hata"])
+                    else:
+                        st.write(f"**Sinyal:** {analiz['sinyal']}")
+                        st.write(f"**Trend:** {analiz['trend']}")
+                        st.write(f"**RSI:** {analiz['rsi']}")
+                        st.write(f"**Fiyat:** {analiz['fiyat']}")
+                        st.write(f"**MACD:** {analiz['macd']}")
+                        st.write(f"**Sahte Sinyal:** {'Evet ⚠️' if analiz['sahte'] else 'Hayır ✅'}")
+
+        st.divider()
+        if st.button("📊 Tüm Varlıklar İçin Çoklu TF Raporu (Telegram)", type="primary"):
+            with st.spinner("Rapor hazırlanıyor..."):
+                rapor = "📊 *ÇOKLU ZAMAN DİLİMİ RAPORU*\n\n"
+                for v in varliklar:
+                    rapor += coklu_tf_rapor(v, [tf1, tf2, tf3])
+                    rapor += "\n"
+                telegram_bildirim_gonder(rapor)
+                st.success("Telegram'a gönderildi!")
+
+
+# ─── SAYFA 5: AI HAFIZA & ÖĞRENME ───
+elif sayfa == "🧠 AI Hafıza & Öğrenme":
+    st.title("🧠 AI Hafıza ve Öğrenme")
+    st.markdown("Botun geçmiş kararlarını, başarı oranlarını ve strateji gelişimini izleyin.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Kararları Değerlendir", type="primary"):
+            with st.spinner("Kararlar değerlendiriliyor..."):
+                kararlari_degerlendir()
+            st.success("Değerlendirme tamamlandı!")
+    with col2:
+        if st.button("📱 Telegram Raporu Gönder"):
+            with st.spinner("Rapor hazırlanıyor..."):
+                rapor = ogrenme_raporu_olustur()
+                telegram_bildirim_gonder(rapor)
+            st.success("Rapor gönderildi!")
+
+    st.divider()
+
+    ist = basari_istatistikleri()
+
+    st.subheader("📊 Genel İstatistikler")
+    col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+    col_i1.metric("Toplam Karar", ist['toplam_karar'])
+    col_i2.metric("Genel Başarı", f"%{ist['genel_basarisi']:.1f}")
+    col_i3.metric("AL Başarısı", f"%{ist['al_basarisi']:.1f}")
+    col_i4.metric("SAT Başarısı", f"%{ist['sat_basarisi']:.1f}")
+
+    st.subheader("📈 Varlık Bazlı Başarı")
+    if ist["varlik_basarisi"]:
+        varlik_data = []
+        for v, d in sorted(ist["varlik_basarisi"].items(), key=lambda x: x[1]["oran"], reverse=True):
+            varlik_data.append({
+                "Varlık": v,
+                "Başarı (%)": round(d["oran"], 1),
+                "Toplam Karar": d["toplam"]
+            })
+        st.dataframe(pd.DataFrame(varlik_data), use_container_width=True)
+    else:
+        st.info("Henüz yeterli karar verisi yok.")
+
+    st.subheader("📝 Son Kararlar")
+    hafiza = hafiza_yukle()
+    if hafiza["kararlar"]:
+        son_kararlar = hafiza["kararlar"][-20:]
+        karar_liste = []
+        for k in reversed(son_kararlar):
+            karar_liste.append({
+                "Tarih": k["tarih"][:16],
+                "Varlık": k["varlik"],
+                "Karar": k["karar"],
+                "Fiyat": k["fiyat"],
+                "Sinyal Türü": k.get("sinyal_turu", "TEKNİK"),
+                "Başarı": "✅" if k.get("basari") else "❌" if k.get("basari") == False else "⏳"
+            })
+        st.dataframe(pd.DataFrame(karar_liste), use_container_width=True)
+    else:
+        st.info("Henüz karar kaydı yok.")
+
+# ─── SAYFA 6: OTONOM CÜZDAN ───
 elif sayfa == "🤖 Otonom Sanal Cüzdan":
     st.title("🤖 Otonom Sanal Cüzdan")
     st.markdown("Bot; AI kararları + teknik analiz ile otomatik alım-satım yapar.")
@@ -965,7 +1179,7 @@ elif sayfa == "💼 Portföy Yönetimi":
                 st.rerun()
 
 
-# ─── SAYFA 5: BACKTEST ───
+# ─── SAYFA 8: BACKTEST ───
 elif sayfa == "⏳ Geriye Dönük Test":
     st.title("⏳ Backtest Motoru")
     varliklar = aktif_ayarlar.get("varliklar", [])
@@ -997,7 +1211,7 @@ elif sayfa == "⏳ Geriye Dönük Test":
                     st.error("Yeterli veri yok.")
 
 
-# ─── SAYFA 6: BOT AYARLARI ───
+# ─── SAYFA 9: BOT AYARLARI ───
 elif sayfa == "⚙️ Bot Ayarları":
     st.title("⚙️ Bot ve Zaman Dilimi Ayarları")
 
