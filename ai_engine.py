@@ -1,5 +1,4 @@
-
-ai_engine_py = '''import os
+import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -13,7 +12,7 @@ if api_key:
 def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="NÖTR", trend="YATAY", hacim_durumu="NORMAL"):
     """
     Gemini AI ile varlık analizi yapar.
-    
+
     Parametreler:
         varlik: Varlık kodu
         fiyat: Anlık fiyat
@@ -28,9 +27,9 @@ def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="
     try:
         if not api_key:
             return _fallback_karar(p_sinyal, "API anahtarı bulunamadı")
-        
+
         model = genai.GenerativeModel('gemini-1.5-flash')
-        
+
         prompt = f"""Sen profesyonel bir finansal analist ve quantitative trader'sın. 
 Aşağıdaki verileri objektif şekilde analiz ederek kesin bir işlem kararı ver.
 
@@ -61,19 +60,19 @@ GÜVEN: [%0-100]
 GEREKÇE: [2 cümle, profesyonel ve net açıklama]
 STRATEJI: [SL: X.XX | TP: Y.YY]
 """
-        
+
         response = model.generate_content(prompt)
         yanit = response.text.strip()
-        
+
         # Karar çıkarımı
         karar = "BEKLE"
         if "KARAR: AL" in yanit.upper() or "KARAR:AL" in yanit.upper():
             karar = "AL"
         elif "KARAR: SAT" in yanit.upper() or "KARAR:SAT" in yanit.upper():
             karar = "SAT"
-        
+
         return karar, yanit
-        
+
     except Exception as e:
         return _fallback_karar(p_sinyal, str(e))
 
@@ -81,16 +80,10 @@ STRATEJI: [SL: X.XX | TP: Y.YY]
 def _fallback_karar(p_sinyal, hata_mesaji):
     """AI API hatası durumunda teknik sinyale göre karar ver."""
     sinyal_ust = p_sinyal.upper()
-    
+
     if "AL" in sinyal_ust and "SAHTE" not in sinyal_ust:
         return "AL", f"[AI Fallback] Teknik sinyal AL. Hata: {hata_mesaji}"
     elif "SAT" in sinyal_ust and "SAHTE" not in sinyal_ust:
         return "SAT", f"[AI Fallback] Teknik sinyal SAT. Hata: {hata_mesaji}"
-    
+
     return "BEKLE", f"[AI Fallback] BEKLE modu. Hata: {hata_mesaji}"
-'''
-
-with open("/mnt/agents/output/ai_engine.py", "w", encoding="utf-8") as f:
-    f.write(ai_engine_py)
-
-print("✅ ai_engine.py oluşturuldu")
