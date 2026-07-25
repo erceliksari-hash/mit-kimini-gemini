@@ -645,14 +645,18 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
                 gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
 
-                if is_fake:
-                    durum_metni = "⚠️ **SAHTE / ZAYİF SİNYAL TESPİT EDİLDİ!**"
-                elif "AL" in p_sinyal.upper():
-                    durum_metni = "🚀 **YÜKSELİŞTE (LONG)**"
-                elif "SAT" in p_sinyal.upper():
-                    durum_metni = "⚠️ **DÜŞÜŞTE (SHORT)**"
+                # Yükseliş veya Düşüş geçişine göre sahte sinyal durumunu ayrıntılı belirleme
+                fake_durum_str = "Evet ⚠️ (Sahte / Zayıf Sinyal)" if is_fake else "Hayır ✅ (Güvenli Sinyal)"
+
+                if "AL" in p_sinyal.upper() or "YÜKSELİŞ" in p_sinyal.upper():
+                    gecis_aciklamasi = f"🚀 **Yükselişe Geçiş**"
+                    sahte_detay = f"• **Yükselişe Geçişte Sahte Sinyal Kontrolü:** `{fake_durum_str}`"
+                elif "SAT" in p_sinyal.upper() or "DÜŞÜŞ" in p_sinyal.upper():
+                    gecis_aciklamasi = f"⚠️ **Düşüşe Geçiş**"
+                    sahte_detay = f"• **Düşüşe Geçişte Sahte Sinyal Kontrolü:** `{fake_durum_str}`"
                 else:
-                    durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
+                    gecis_aciklamasi = f"⚖️ **Nötr / Yatay Seyir**"
+                    sahte_detay = f"• **Mevcut Durumda Sahte Sinyal Kontrolü:** `{fake_durum_str}`"
 
                 telegram_toplu_mesaj += (
                     f"🔹 *{varlik}*\n"
@@ -664,13 +668,13 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                     f"   • Sahte Sinyal: `{'Evet ⚠️' if is_fake else 'Hayır ✅'}`\n\n"
                 )
 
-                # Arayüzde geçiş zamanı, sahte sinyal, SL ve TP değerlerinin net gösterimi
+                # Arayüzde yükselişe/düşüşe geçişte sahte sinyal durumunun gösterilmesi
                 col_info, col_btn = st.columns([4, 1])
                 with col_info:
                     st.markdown(
-                        f"🔹 **{varlik}** | Fiyat: `{fiyat:.2f}` | Durum: {durum_metni}\n\n"
-                        f"&nbsp;&nbsp;&nbsp;&nbsp;• **Geçiş Zamanı:** `{gecis_tarihi}` &nbsp;|&nbsp; "
-                        f"**Sahte Sinyal:** `{'Evet ⚠️ (Zayıf)' if is_fake else 'Hayır ✅ (Güvenli)'}`\n\n"
+                        f"🔹 **{varlik}** | Fiyat: `{fiyat:.2f}` | Durum: {gecis_aciklamasi}\n\n"
+                        f"&nbsp;&nbsp;&nbsp;&nbsp;• **Geçiş Zamanı:** `{gecis_tarihi}`\n\n"
+                        f"&nbsp;&nbsp;&nbsp;&nbsp;{sahte_detay}\n\n"
                         f"&nbsp;&nbsp;&nbsp;&nbsp;• **Stop-Loss (SL):** `{stop_loss:.2f}` &nbsp;|&nbsp; "
                         f"**Take-Profit (TP):** `{take_profit:.2f}`"
                     )
