@@ -1,3 +1,4 @@
+from ai_engine import ai_akilli_karar_ver
 import datetime
 import json
 import os
