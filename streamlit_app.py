@@ -1,387 +1,644 @@
-import streamlit as st
-import requests
-import threading
-import time
+import datetime
 import json
 import os
+import threading
+import time
+import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import pandas as pd
+import requests
 
+from config import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 from data_sources import veri_cek
-from indicators import hesapla_teknikler, sinyal_kontrol, piyasa_analizi_yap
+from indicators import (
+    hesapla_teknikler,
+    piyasa_analizi_yap,
+    sinyal_kontrol,
+)
 from utils import donusum_noktalari_hesapla
-from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 
 st.set_page_config(page_title="Pro Finans Paneli", layout="wide")
-st.markdown("""<style>.stApp { background-color: #0e1117; }</style>""", unsafe_allow_html=True)
+st.markdown(
+    """<style>.stApp { background-color: #0e1117; }</style>""",
+    unsafe_allow_html=True,
+)
 
-# --- AYAR VE VERİ YÖNETİMİ (Kalıcı Arşivleme) ---
+# --- AYAR VE VERİ YÖNETİMİ ---
 AYAR_DOSYASI = "ayarlar.json"
 PORTFOY_DOSYASI = "portfoy_arsiv.json"
-VARSAYILAN_AYARLAR = {"varliklar": ["BTC-USD", "THYAO.IS", "AAPL"], "zaman_dilimi": "1h", "bot_sikligi_dk": 60}
+VARSAYILAN_AYARLAR = {
+    "varliklar": ["BTC-USD", "THYAO.IS", "AAPL"],
+    "zaman_dilimi": "1h",
+    "bot_sikligi_dk": 60,
+}
+
 
 def ayarlari_yukle():
-    if not os.path.exists(AYAR_DOSYASI):
-        with open(AYAR_DOSYASI, "w") as f: json.dump(VARSAYILAN_AYARLAR, f)
-        return VARSAYILAN_AYARLAR
-    try:
-        with open(AYAR_DOSYASI, "r") as f: return json.load(f)
-    except: return VARSAYILAN_AYARLAR
+  if not os.path.exists(AYAR_DOSYASI):
+    with open(AYAR_DOSYASI, "w") as f:
+      json.dump(VARSAYILAN_AYARLAR, f)
+    return VARSAYILAN_AYARLAR
+  try:
+    with open(AYAR_DOSYASI, "r") as f:
+      return json.load(f)
+  except:
+    return VARSAYILAN_AYARLAR
+
 
 def ayarlari_kaydet(ayarlar):
-    with open(AYAR_DOSYASI, "w") as f: json.dump(ayarlar, f)
+  with open(AYAR_DOSYASI, "w") as f:
+    json.dump(ayarlar, f)
+
 
 def portfoy_yukle():
-    if not os.path.exists(PORTFOY_DOSYASI): return {}
-    try:
-        with open(PORTFOY_DOSYASI, "r") as f: return json.load(f)
-    except: return {}
+  if not os.path.exists(PORTFOY_DOSYASI):
+    return {}
+  try:
+    with open(PORTFOY_DOSYASI, "r") as f:
+      return json.load(f)
+  except:
+    return {}
+
 
 def portfoy_kaydet(portfoy_verisi):
-    with open(PORTFOY_DOSYASI, "w") as f: json.dump(portfoy_verisi, f)
+  with open(PORTFOY_DOSYASI, "w") as f:
+    json.dump(portfoy_verisi, f)
+
 
 # --- TELEGRAM BOT VE BİLDİRİM ---
 def telegram_bildirim_gonder(mesaj):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mesaj, "parse_mode": "Markdown"}
-    try: requests.post(url, json=payload)
-    except: pass
+  if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+    return
+  url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+  payload = {
+      "chat_id": TELEGRAM_CHAT_ID,
+      "text": mesaj,
+      "parse_mode": "Markdown",
+  }
+  try:
+    requests.post(url, json=payload)
+  except:
+    pass
+
 
 def otomatik_tarama_botu():
-    time.sleep(15) 
-    while True:
-        try:
-            ayarlar = ayarlari_yukle()
-            varliklar = ayarlar.get("varliklar", [])
-            zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
-            bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
-            
-            if varliklar:
-                ozet_mesaj = f"🚨 *Otomatik Sinyal Raporu* (Periyot: {zaman_dilimi})\n\n"
-                for varlik in varliklar:
-                    df_t = veri_cek(varlik, aralik=zaman_dilimi)
-                    if df_t is not None and not df_t.empty:
-                        df_t_analiz = hesapla_teknikler(df_t)
-                        p_analiz = donusum_noktalari_hesapla(df_t_analiz)
-                        p_sinyal = sinyal_kontrol(df_t_analiz)
-                        
-                        if "AL" in p_sinyal.upper(): pozisyon, sl = "🟢 *LONG*", p_analiz['destek'] * 0.99
-                        elif "SAT" in p_sinyal.upper(): pozisyon, sl = "🔴 *SHORT*", p_analiz['direnc'] * 1.01
-                        else: pozisyon, sl = "⚪ *NÖTR*", p_analiz['destek'] * 0.98
-                            
-                        ozet_mesaj += f"• *{varlik}*: Fiyat: `{p_analiz['fiyat']:.2f}` | {pozisyon} | SL: `{sl:.2f}`\n"
-                telegram_bildirim_gonder(ozet_mesaj)
-        except: pass
-        time.sleep(bekleme_suresi)
+  time.sleep(15)
+  while True:
+    try:
+      ayarlar = ayarlari_yukle()
+      varliklar = ayarlar.get("varliklar", [])
+      zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
+      bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
+
+      if varliklar:
+        ozet_mesaj = (
+            f"🚨 *Otomatik Sinyal Raporu* (Periyot: {zaman_dilimi})\n\n"
+        )
+        for varlik in varliklar:
+          df_t = veri_cek(varlik, aralik=zaman_dilimi)
+          if df_t is not None and not df_t.empty:
+            df_t_analiz = hesapla_teknikler(df_t)
+            p_analiz = donusum_noktalari_hesapla(df_t_analiz)
+            p_sinyal = sinyal_kontrol(df_t_analiz)
+
+            if "AL" in p_sinyal.upper():
+              pozisyon, sl = "🟢 *LONG*", p_analiz["destek"] * 0.99
+            elif "SAT" in p_sinyal.upper():
+              pozisyon, sl = "🔴 *SHORT*", p_analiz["direnc"] * 1.01
+            else:
+              pozisyon, sl = "⚪ *NÖTR*", p_analiz["destek"] * 0.98
+
+            ozet_mesaj += f"• *{varlik}*: Fiyat: `{p_analiz['fiyat']:.2f}` | {pozisyon} | SL: `{sl:.2f}`\n"
+        telegram_bildirim_gonder(ozet_mesaj)
+    except:
+      pass
+    time.sleep(bekleme_suresi)
+
 
 if "arkaplan_bot_aktif" not in globals():
-    globals()["arkaplan_bot_aktif"] = True
-    threading.Thread(target=otomatik_tarama_botu, daemon=True).start()
+  globals()["arkaplan_bot_aktif"] = True
+  threading.Thread(target=otomatik_tarama_botu, daemon=True).start()
 
-# --- YENİ EKLENEN BACKTEST MOTORU ---
+
+# --- BACKTEST MOTORU ---
 def calistir_backtest(df):
-    """Geçmiş sinyalleri simüle ederek kâr/zarar hesaplar."""
-    sermaye = 10000  # Varsayılan başlangıç bakiyesi
-    bakiye = sermaye
-    pozisyon = 0     # 0: İşlem yok, 1: Pozisyonda
-    giris_fiyati = 0
-    islemler = []
-    
-    for index, row in df.iterrows():
-        if row['sinyal_tarihsel'] == 1 and pozisyon == 0:
-            # Alım yap
-            pozisyon = 1
-            giris_fiyati = row['close']
-            giris_tarihi = row['tarih']
-        elif row['sinyal_tarihsel'] == -1 and pozisyon == 1:
-            # Satım yap ve kâr/zarar hesapla
-            pozisyon = 0
-            cikis_fiyati = row['close']
-            cikis_tarihi = row['tarih']
-            
-            oran = (cikis_fiyati - giris_fiyati) / giris_fiyati
-            kar_zarar_tutari = bakiye * oran
-            bakiye += kar_zarar_tutari
-            
-            durum = "Başarılı ✅" if kar_zarar_tutari > 0 else "Başarısız ❌"
-            islemler.append({
-                'Giriş Tarihi': giris_tarihi,
-                'Çıkış Tarihi': cikis_tarihi,
-                'Giriş Fiyatı': round(giris_fiyati, 4),
-                'Çıkış Fiyatı': round(cikis_fiyati, 4),
-                'İşlem PnL ($)': round(kar_zarar_tutari, 2),
-                'Durum': durum
-            })
-            
-    toplam_islem = len(islemler)
-    basarili_islem = sum(1 for i in islemler if i['İşlem PnL ($)'] > 0)
-    win_rate = (basarili_islem / toplam_islem * 100) if toplam_islem > 0 else 0
-    net_kar_yuzde = ((bakiye - sermaye) / sermaye) * 100
-    
-    return {
-        "son_bakiye": bakiye, 
-        "toplam_islem": toplam_islem, 
-        "win_rate": win_rate, 
-        "net_kar_yuzde": net_kar_yuzde, 
-        "islemler": islemler
-    }
+  sermaye = 10000
+  bakiye = sermaye
+  pozisyon = 0
+  giris_fiyati = 0
+  islemler = []
+
+  for index, row in df.iterrows():
+    if row["sinyal_tarihsel"] == 1 and pozisyon == 0:
+      pozisyon = 1
+      giris_fiyati = row["close"]
+      giris_tarihi = row["tarih"]
+    elif row["sinyal_tarihsel"] == -1 and pozisyon == 1:
+      pozisyon = 0
+      cikis_fiyati = row["close"]
+      cikis_tarihi = row["tarih"]
+
+      oran = (cikis_fiyati - giris_fiyati) / giris_fiyati
+      kar_zarar_tutari = bakiye * oran
+      bakiye += kar_zarar_tutari
+
+      durum = "Başarılı ✅" if kar_zarar_tutari > 0 else "Başarısız ❌"
+      islemler.append({
+          "Giriş Tarihi": giris_tarihi,
+          "Çıkış Tarihi": cikis_tarihi,
+          "Giriş Fiyatı": round(giris_fiyati, 4),
+          "Çıkış Fiyatı": round(cikis_fiyati, 4),
+          "İşlem PnL ($)": round(kar_zarar_tutari, 2),
+          "Durum": durum,
+      })
+
+  toplam_islem = len(islemler)
+  basarili_islem = sum(1 for i in islemler if i["İşlem PnL ($)"] > 0)
+  win_rate = (
+      (basarili_islem / toplam_islem * 100) if toplam_islem > 0 else 0
+  )
+  net_kar_yuzde = ((bakiye - sermaye) / sermaye) * 100
+
+  return {
+      "son_bakiye": bakiye,
+      "toplam_islem": toplam_islem,
+      "win_rate": win_rate,
+      "net_kar_yuzde": net_kar_yuzde,
+      "islemler": islemler,
+  }
+
 
 # --- STREAMLIT UI ---
 aktif_ayarlar = ayarlari_yukle()
 aktif_portfoy = portfoy_yukle()
 
 st.sidebar.title("🤖 Pro Asistan")
-sayfa = st.sidebar.radio("Menü Seçimi", [
-    "📚 Varlık Havuzu", 
-    "📈 Canlı Analiz & Sinyaller", 
-    "💼 Portföy Yönetimi", 
-    "⏳ Geriye Dönük Test", 
-    "⚙️ Bot Ayarları"
-])
+sayfa = st.sidebar.radio(
+    "Menü Seçimi",
+    [
+        "📚 Varlık Havuzu",
+        "📈 Canlı Analiz & Sinyaller",
+        "💼 Portföy Yönetimi",
+        "⏳ Geriye Dönük Test",
+        "⚙️ Bot Ayarları",
+    ],
+)
 st.sidebar.divider()
 
 HAZIR_VARLIKLAR = {
-    "BIST 30 Hisseleri": {"THYAO (Türk Hava Yolları)": "THYAO.IS", "ISMEN (İş Yatırım)": "ISMEN.IS", "GARAN (Garanti BBVA)": "GARAN.IS", "ASELS (Aselsan)": "ASELS.IS", "EREGL (Ereğli)": "EREGL.IS"},
-    "Kripto Paralar": {"Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD", "Ripple": "XRP-USD"},
-    "Global & Emtia": {"Apple": "AAPL", "Tesla": "TSLA", "Altın (ONS)": "GC=F"}
+    "BIST 30 Hisseleri": {
+        "THYAO (Türk Hava Yolları)": "THYAO.IS",
+        "ISMEN (İş Yatırım)": "ISMEN.IS",
+        "GARAN (Garanti BBVA)": "GARAN.IS",
+        "ASELS (Aselsan)": "ASELS.IS",
+        "EREGL (Ereğli)": "EREGL.IS",
+    },
+    "Kripto Paralar": {
+        "Bitcoin": "BTC-USD",
+        "Ethereum": "ETH-USD",
+        "Solana": "SOL-USD",
+        "Ripple": "XRP-USD",
+    },
+    "Global & Emtia": {"Apple": "AAPL", "Tesla": "TSLA", "Altın (ONS)": "GC=F"},
 }
 
 if sayfa == "📚 Varlık Havuzu":
-    st.title("📚 Varlık Havuzu")
-    secilenler = set(aktif_ayarlar["varliklar"])
-    
-    c1, c2, c3 = st.columns(3)
-    kats = list(HAZIR_VARLIKLAR.keys())
-    for col, kat in zip([c1, c2, c3], kats):
-        with col:
-            st.subheader(kat)
-            for isim, kod in HAZIR_VARLIKLAR[kat].items():
-                if st.checkbox(isim, value=(kod in secilenler), key=kod): secilenler.add(kod)
-                else: secilenler.discard(kod)
-    st.divider()
-    manuel = st.text_input("🎯 Aradığınız varlık listede yoksa kodunu girin (Örn: FROTO.IS)").upper().strip()
-    if st.button("➕ Özel Varlık Ekle") and manuel:
-        secilenler.add(manuel)
-        st.success(f"{manuel} eklendi!")
-        
-    st.divider()
-    if st.button("💾 SEÇİMLERİ KAYDET VE BOTA İLET", use_container_width=True, type="primary"):
-        aktif_ayarlar["varliklar"] = list(secilenler)
-        ayarlari_kaydet(aktif_ayarlar)
-        st.success("Listeniz güncellendi!")
-        time.sleep(1)
-        st.rerun()
+  st.title("📚 Varlık Havuzu")
+  secilenler = set(aktif_ayarlar["varliklar"])
+
+  c1, c2, c3 = st.columns(3)
+  kats = list(HAZIR_VARLIKLAR.keys())
+  for col, kat in zip([c1, c2, c3], kats):
+    with col:
+      st.subheader(kat)
+      for isim, kod in HAZIR_VARLIKLAR[kat].items():
+        if st.checkbox(isim, value=(kod in secilenler), key=kod):
+          secilenler.add(kod)
+        else:
+          secilenler.discard(kod)
+  st.divider()
+  manuel = (
+      st.text_input(
+          "🎯 Aradığınız varlık listede yoksa kodunu girin (Örn: FROTO.IS)"
+      )
+      .upper()
+      .strip()
+  )
+  if st.button("➕ Özel Varlık Ekle") and manuel:
+    secilenler.add(manuel)
+    st.success(f"{manuel} eklendi!")
+
+  st.divider()
+  if st.button(
+      "💾 SEÇİMLERİ KAYDET VE BOTA İLET",
+      use_container_width=True,
+      type="primary",
+  ):
+    aktif_ayarlar["varliklar"] = list(secilenler)
+    ayarlari_kaydet(aktif_ayarlar)
+    st.success("Listeniz güncellendi!")
+    time.sleep(1)
+    st.rerun()
 
 elif sayfa == "💼 Portföy Yönetimi":
-    st.title("💼 Portföy Yönetimi ve Anlık Durum")
-    with st.expander("➕ Portföye Yeni Varlık / İşlem Ekle", expanded=True):
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            mevcut_havuz = aktif_ayarlar.get("varliklar", ["BTC-USD"])
-            p_varlik = st.selectbox("Varlık Seç", mevcut_havuz)
-        with col2:
-            p_maliyet = st.number_input("Ortalama Alım Fiyatı", min_value=0.0, format="%.4f")
-        with col3:
-            p_adet = st.number_input("Adet / Lot Miktarı", min_value=0.0, format="%.4f")
-        with col4:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Kaydet / Güncelle", use_container_width=True, type="primary"):
-                aktif_portfoy[p_varlik] = {"maliyet": p_maliyet, "adet": p_adet}
-                portfoy_kaydet(aktif_portfoy)
-                st.success("Portföy Arşivine Kaydedildi!")
-                time.sleep(1)
-                st.rerun()
+  st.title("💼 Portföy Yönetimi ve Detaylı Analiz")
 
-    st.divider()
-    st.subheader("📊 Aktif Varlıklarınızın Anlık Analizi")
-    if not aktif_portfoy:
-        st.info("Henüz portföyünüze veri girmediniz. Yukarıdan alım yaptığınız varlıkları ekleyebilirsiniz.")
-    else:
-        toplam_portfoy_maliyeti = 0
-        toplam_portfoy_guncel_degeri = 0
-        silinecekler = []
-        
-        for v_kod, v_veri in aktif_portfoy.items():
-            df_canli = veri_cek(v_kod, aralik="15m")
-            if df_canli is not None and not df_canli.empty:
-                anlik_fiyat = df_canli['close'].iloc[-1]
-                maliyet = v_veri["maliyet"]
-                adet = v_veri["adet"]
-                
-                yatirilan_tutar = maliyet * adet
-                guncel_tutar = anlik_fiyat * adet
-                fark = guncel_tutar - yatirilan_tutar
-                yuzde_degisim = ((anlik_fiyat - maliyet) / maliyet) * 100 if maliyet > 0 else 0
-                
-                toplam_portfoy_maliyeti += yatirilan_tutar
-                toplam_portfoy_guncel_degeri += guncel_tutar
-                
-                renk = "green" if fark >= 0 else "red"
-                ikon = "📈" if fark >= 0 else "📉"
-                
-                c_sol, c_orta, c_sag, c_btn = st.columns([2, 2, 2, 1])
-                with c_sol:
-                    st.markdown(f"### {v_kod}")
-                    st.caption(f"Adet: {adet} | Maliyet: {maliyet:.2f}")
-                with c_orta:
-                    st.markdown(f"**Anlık Fiyat:** `{anlik_fiyat:.2f}`")
-                    st.markdown(f"**Güncel Değer:** `{guncel_tutar:.2f}`")
-                with c_sag:
-                    st.markdown(f"<h4 style='color:{renk};'>{ikon} {fark:+.2f} (%{yuzde_degisim:+.2f})</h4>", unsafe_allow_html=True)
-                with c_btn:
-                    if st.button("🗑️ Sil", key=f"sil_{v_kod}"):
-                        silinecekler.append(v_kod)
-                st.divider()
-                
-        for s in silinecekler:
-            del aktif_portfoy[s]
-            portfoy_kaydet(aktif_portfoy)
-            st.rerun()
+  with st.expander(
+      "➕ Yeni İşlem / Varlık Ekle (Tarih, Bütçe ve Lot Hesaplama)",
+      expanded=True,
+  ):
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+      mevcut_havuz = aktif_ayarlar.get("varliklar", ["BTC-USD"])
+      p_varlik = st.selectbox("Varlık Seç", mevcut_havuz)
+    with col2:
+      p_tarih = st.date_input("Alım Tarihi", value=datetime.date.today())
+    with col3:
+      p_harcanan = st.number_input(
+          "Harcanan Tutar (Örn: 3000)",
+          min_value=0.0,
+          value=3000.0,
+          format="%.2f",
+      )
+    with col4:
+      p_maliyet = st.number_input(
+          "Alış Fiyatı (Birim)", min_value=0.0, format="%.4f"
+      )
+    with col5:
+      st.markdown("<br>", unsafe_allow_html=True)
+      if st.button("Kaydet", use_container_width=True, type="primary"):
+        if p_maliyet > 0:
+          p_adet = p_harcanan / p_maliyet
+          aktif_portfoy[p_varlik] = {
+              "tarih": str(p_tarih),
+              "harcanan": p_harcanan,
+              "maliyet": p_maliyet,
+              "adet": p_adet,
+          }
+          portfoy_kaydet(aktif_portfoy)
+          st.success(f"Kayıt eklendi! Karşılığı: {p_adet:.4f} Lot")
+          time.sleep(1)
+          st.rerun()
+        else:
+          st.error("Alış fiyatı 0'dan büyük olmalıdır!")
 
-        st.subheader("Genel Portföy Özeti")
-        toplam_fark = toplam_portfoy_guncel_degeri - toplam_portfoy_maliyeti
-        genel_renk = "normal" if toplam_fark >= 0 else "inverse"
-        
-        t1, t2, t3 = st.columns(3)
-        t1.metric("Toplam Yatırım (Maliyet)", f"{toplam_portfoy_maliyeti:.2f}")
-        t2.metric("Portföy Güncel Değeri", f"{toplam_portfoy_guncel_degeri:.2f}")
-        t3.metric("Toplam Kâr / Zarar", f"{toplam_fark:+.2f}", delta_color=genel_renk)
+  st.divider()
+  st.subheader("📊 Portföy Canlı Durumu ve Günlük Değişimler")
+  if not aktif_portfoy:
+    st.info("Henüz portföyünüze veri eklemediniz.")
+  else:
+    toplam_portfoy_maliyeti = 0
+    toplam_portfoy_guncel_degeri = 0
+    silinecekler = []
+
+    for v_kod, v_veri in aktif_portfoy.items():
+      df_canli = veri_cek(v_kod, aralik="1h")
+      if df_canli is not None and len(df_canli) >= 2:
+        anlik_fiyat = df_canli["close"].iloc[-1]
+        onceki_fiyat = df_canli["close"].iloc[-2]
+
+        tarih = v_veri.get("tarih", "Bilinmiyor")
+        harcanan = v_veri.get(
+            "harcanan", v_veri.get("maliyet", 0) * v_veri.get("adet", 0)
+        )
+        maliyet = v_veri["maliyet"]
+        adet = v_veri["adet"]
+
+        guncel_deger = anlik_fiyat * adet
+        toplam_kar = guncel_deger - harcanan
+        toplam_kar_yuzde = (
+            ((anlik_fiyat - maliyet) / maliyet) * 100 if maliyet > 0 else 0
+        )
+
+        gunluk_fark_tutar = (anlik_fiyat - onceki_fiyat) * adet
+        gunluk_fark_yuzde = (
+            ((anlik_fiyat - onceki_fiyat) / onceki_fiyat) * 100
+            if onceki_fiyat > 0
+            else 0
+        )
+
+        toplam_portfoy_maliyeti += harcanan
+        toplam_portfoy_guncel_degeri += guncel_deger
+
+        t_renk = "green" if toplam_kar >= 0 else "red"
+        g_renk = "green" if gunluk_fark_tutar >= 0 else "red"
+
+        c1, c2, c3, c4, c5 = st.columns([1.5, 1.5, 1.5, 1.5, 0.8])
+        with c1:
+          st.markdown(f"### {v_kod}")
+          st.caption(f"📅 Tarih: {tarih} | Lot: `{adet:.4f}`")
+        with c2:
+          st.markdown(f"**Harcanan:** `{harcanan:.2f}`")
+          st.markdown(f"**Güncel Değer:** `{guncel_deger:.2f}`")
+        with c3:
+          st.markdown(f"**Toplam K/Z:**")
+          st.markdown(
+              f"<span style='color:{t_renk};"
+              f" font-weight:bold;'>{toplam_kar:+.2f}"
+              f" (%{toplam_kar_yuzde:+.2f})</span>",
+              unsafe_allow_html=True,
+          )
+        with c4:
+          st.markdown(f"**Günlük K/Z:**")
+          st.markdown(
+              f"<span style='color:{g_renk};"
+              f" font-weight:bold;'>{gunluk_fark_tutar:+.2f}"
+              f" (%{gunluk_fark_yuzde:+.2f})</span>",
+              unsafe_allow_html=True,
+          )
+        with c5:
+          st.markdown("<br>", unsafe_allow_html=True)
+          if st.button("🗑️ Sil", key=f"sil_{v_kod}"):
+            silinecekler.append(v_kod)
+        st.divider()
+
+    for s in silinecekler:
+      del aktif_portfoy[s]
+      portfoy_kaydet(aktif_portfoy)
+      st.rerun()
+
+    st.subheader("Genel Portföy Özeti")
+    toplam_fark = toplam_portfoy_guncel_degeri - toplam_portfoy_maliyeti
+    genel_renk = "normal" if toplam_fark >= 0 else "inverse"
+
+    t1, t2, t3 = st.columns(3)
+    t1.metric("Toplam Harcanan (Maliyet)", f"{toplam_portfoy_maliyeti:.2f}")
+    t2.metric("Portföy Güncel Değeri", f"{toplam_portfoy_guncel_degeri:.2f}")
+    t3.metric(
+        "Genel Toplam Kâr / Zarar",
+        f"{toplam_fark:+.2f}",
+        delta_color=genel_renk,
+    )
 
 elif sayfa == "⏳ Geriye Dönük Test":
-    st.title("⏳ Strateji Testi (Backtest)")
-    st.markdown("Seçtiğiniz varlık ve zaman diliminde bot stratejisinin geçmiş kârlılığını test edin. **Başlangıç Bakiyesi: 10,000 $**")
-    
-    mevcut_varliklar = aktif_ayarlar.get("varliklar", ["BTC-USD"])
-    test_edilecek = st.selectbox("Test Edilecek Varlık", mevcut_varliklar)
-    
-    if st.button("🚀 Backtest'i Başlat", type="primary"):
-        with st.spinner(f"{test_edilecek} için geçmiş veriler taranıyor ve simülasyon yapılıyor..."):
-            df_test = veri_cek(test_edilecek, aralik=aktif_ayarlar["zaman_dilimi"])
-            if df_test is not None and not df_test.empty:
-                df_test_analiz = hesapla_teknikler(df_test)
-                sonuclar = calistir_backtest(df_test_analiz)
-                
-                st.divider()
-                st.subheader(f"📊 {test_edilecek} Backtest Sonuçları (Periyot: {aktif_ayarlar['zaman_dilimi']})")
-                
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Net Kâr Yüzdesi", f"%{sonuclar['net_kar_yuzde']:.2f}")
-                c2.metric("Toplam İşlem", str(sonuclar['toplam_islem']))
-                c3.metric("Başarı Oranı (Win Rate)", f"%{sonuclar['win_rate']:.1f}")
-                c4.metric("Son Bakiye", f"{sonuclar['son_bakiye']:.2f} $")
-                
-                if sonuclar['islemler']:
-                    st.markdown("### 📝 İşlem Geçmişi (Log)")
-                    df_islemler = pd.DataFrame(sonuclar['islemler'])
-                    st.dataframe(df_islemler, use_container_width=True)
-                else:
-                    st.warning("Bu periyotta stratejiye uygun herhangi bir Al/Sat kesişimi bulunamadı.")
-            else:
-                st.error("Veri çekilemedi. Lütfen daha sonra tekrar deneyin.")
+  st.title("⏳ Strateji Testi (Backtest)")
+  st.markdown(
+      "Seçtiğiniz varlık ve zaman diliminde bot stratejisinin geçmiş"
+      " kârlılığını test edin. **Başlangıç Bakiyesi: 10,000 $**"
+  )
 
-elif sayfa == "📈 Canlı Analiz & Sinyaller":
-    st.title("📈 Portföy Sinyal Listesi ve Gelişmiş Grafik")
-    mevcut_varliklar = aktif_ayarlar.get("varliklar", [])
-    
-    if not mevcut_varliklar:
-        st.warning("Varlık Havuzundan seçim yapın.")
-    else:
-        if "secilen_aktif_grafik" not in st.session_state:
-            st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
+  mevcut_varliklar = aktif_ayarlar.get("varliklar", ["BTC-USD"])
+  test_edilecek = st.selectbox("Test Edilecek Varlık", mevcut_varliklar)
 
-        st.subheader("📋 Sinyal ve Durum Özeti")
-        for varlik in mevcut_varliklar:
-            df_temp = veri_cek(varlik, aralik=aktif_ayarlar["zaman_dilimi"])
-            if df_temp is not None and not df_temp.empty:
-                df_t_analiz = hesapla_teknikler(df_temp)
-                p_analiz = donusum_noktalari_hesapla(df_t_analiz)
-                p_sinyal = sinyal_kontrol(df_t_analiz)
-                
-                if "AL" in p_sinyal.upper(): durum_metni = "🚀 **YÜKSELİŞTE (LONG)**"
-                elif "SAT" in p_sinyal.upper(): durum_metni = "⚠️ **DÜŞÜŞTE (SHORT)**"
-                else: durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
-                
-                col_info, col_btn = st.columns([4, 1])
-                with col_info:
-                    st.markdown(f"🔹 **{varlik}** | Fiyat: `{p_analiz['fiyat']:.2f}` | Durum: {durum_metni} | Destek: `{p_analiz['destek']:.2f}`")
-                with col_btn:
-                    if st.button(f"📊 Grafiği İncele", key=f"btn_list_{varlik}", use_container_width=True):
-                        st.session_state["secilen_aktif_grafik"] = varlik
-                        st.rerun()
+  if st.button("🚀 Backtest'i Başlat", type="primary"):
+    with st.spinner(
+        f"{test_edilecek} için geçmiş veriler taranıyor ve simülasyon"
+        " yapılıyor..."
+    ):
+      df_test = veri_cek(test_edilecek, aralik=aktif_ayarlar["zaman_dilimi"])
+      if df_test is not None and not df_test.empty:
+        df_test_analiz = hesapla_teknikler(df_test)
+        sonuclar = calistir_backtest(df_test_analiz)
 
         st.divider()
-        st.header(f"📊 Gelişmiş Grafik İncelemesi: `{st.session_state['secilen_aktif_grafik']}`")
-        st.info("💡 **İpucu:** Grafikte fare tekerleği ile zoom yapabilir, sağ üstteki menüden trend çizgisi çizebilirsiniz.")
+        st.subheader(
+            f"📊 {test_edilecek} Backtest Sonuçları (Periyot:"
+            f" {aktif_ayarlar['zaman_dilimi']})"
+        )
 
-        ek_gostergeler = st.multiselect("Gösterilecek İndikatörler", ["Bollinger Bantları", "Özel İndikatörüm", "RSI (Alt Grafik)", "MACD (Alt Grafik)"], default=["Bollinger Bantları"])
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Net Kâr Yüzdesi", f"%{sonuclar['net_kar_yuzde']:.2f}")
+        c2.metric("Toplam İşlem", str(sonuclar["toplam_islem"]))
+        c3.metric("Başarı Oranı (Win Rate)", f"%{sonuclar['win_rate']:.1f}")
+        c4.metric("Son Bakiye", f"{sonuclar['son_bakiye']:.2f} $")
 
-        aktif_secim = st.session_state["secilen_aktif_grafik"]
-        df = veri_cek(aktif_secim, aralik=aktif_ayarlar["zaman_dilimi"])
-        
-        if df is not None and not df.empty:
-            df_analiz = hesapla_teknikler(df)
-            analiz = donusum_noktalari_hesapla(df_analiz)
-            sinyal = sinyal_kontrol(df_analiz)
-            
-            satir_sayisi = 1
-            row_heights = [0.7]
-            if "RSI (Alt Grafik)" in ek_gostergeler:
-                satir_sayisi += 1
-                row_heights.append(0.2)
-            if "MACD (Alt Grafik)" in ek_gostergeler:
-                satir_sayisi += 1
-                row_heights.append(0.2)
-            if satir_sayisi == 1: row_heights = [1]
-                
-            fig = make_subplots(rows=satir_sayisi, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights)
+        if sonuclar["islemler"]:
+          st.markdown("### 📝 İşlem Geçmişi (Log)")
+          df_islemler = pd.DataFrame(sonuclar["islemler"])
+          st.dataframe(df_islemler, use_container_width=True)
+        else:
+          st.warning(
+              "Bu periyotta stratejiye uygun herhangi bir Al/Sat kesişimi"
+              " bulunamadı."
+          )
+      else:
+        st.error("Veri çekilemedi. Lütfen daha sonra tekrar deneyin.")
 
-            fig.add_trace(go.Candlestick(x=df_analiz['tarih'], open=df_analiz['open'], high=df_analiz['high'], low=df_analiz['low'], close=df_analiz['close'], name='Fiyat'), row=1, col=1)
-            fig.add_hline(y=analiz['destek'], line_dash="dot", line_color="green", annotation_text="Destek", row=1, col=1)
-            fig.add_hline(y=analiz['direnc'], line_dash="dot", line_color="red", annotation_text="Direnç", row=1, col=1)
+elif sayfa == "📈 Canlı Analiz & Sinyaller":
+  st.title("📈 Portföy Sinyal Listesi ve Gelişmiş Grafik")
+  mevcut_varliklar = aktif_ayarlar.get("varliklar", [])
 
-            if "Bollinger Bantları" in ek_gostergeler:
-                fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['bollinger_ust'], name='Bol. Üst', line=dict(color='rgba(173,216,230,0.5)', width=1, dash='dash')), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['bollinger_alt'], name='Bol. Alt', fill='tonexty', fillcolor='rgba(173,216,230,0.1)', line=dict(color='rgba(173,216,230,0.5)', width=1, dash='dash')), row=1, col=1)
+  if not mevcut_varliklar:
+    st.warning("Varlık Havuzundan seçim yapın.")
+  else:
+    if "secilen_aktif_grafik" not in st.session_state:
+      st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
-            guncel_satir = 2
-            if "RSI (Alt Grafik)" in ek_gostergeler:
-                fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['rsi'], name='RSI', line=dict(color='purple', width=1.5)), row=guncel_satir, col=1)
-                guncel_satir += 1
-                
-            if "MACD (Alt Grafik)" in ek_gostergeler:
-                fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['macd'], name='MACD', line=dict(color='blue')), row=guncel_satir, col=1)
+    st.subheader("📋 Sinyal ve Durum Özeti")
+    for varlik in mevcut_varliklar:
+      df_temp = veri_cek(varlik, aralik=aktif_ayarlar["zaman_dilimi"])
+      if df_temp is not None and not df_temp.empty:
+        df_t_analiz = hesapla_teknikler(df_temp)
+        p_analiz = donusum_noktalari_hesapla(df_t_analiz)
+        p_sinyal = sinyal_kontrol(df_t_analiz)
 
-            fig.update_layout(
-                template="plotly_dark", 
-                height=650 if satir_sayisi == 1 else 850, 
-                margin=dict(l=0, r=0, t=30, b=0), 
-                xaxis_rangeslider_visible=False,
-                dragmode='zoom', 
-                hovermode='x unified'
-            )
-            
-            st.plotly_chart(
-                fig, 
-                use_container_width=True, 
-                config={'scrollZoom': True, 'displayModeBar': True, 'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape']}
-            )
+        if "AL" in p_sinyal.upper():
+          durum_metni = "🚀 **YÜKSELİŞTE (LONG)**"
+        elif "SAT" in p_sinyal.upper():
+          durum_metni = "⚠️ **DÜŞÜŞTE (SHORT)**"
+        else:
+          durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
+
+        col_info, col_btn = st.columns([4, 1])
+        with col_info:
+          st.markdown(
+              f"🔹 **{varlik}** | Fiyat: `{p_analiz['fiyat']:.2f}` | Durum:"
+              f" {durum_metni} | Destek: `{p_analiz['destek']:.2f}`"
+          )
+        with col_btn:
+          if st.button(
+              f"📊 Grafiği İncele",
+              key=f"btn_list_{varlik}",
+              use_container_width=True,
+          ):
+            st.session_state["secilen_aktif_grafik"] = varlik
+            st.rerun()
+
+    st.divider()
+    st.header(
+        "📊 Gelişmiş Grafik İncelemesi:"
+        f" `{st.session_state['secilen_aktif_grafik']}`"
+    )
+    st.info(
+        "💡 **İpucu:** Grafikte fare tekerleği ile zoom yapabilir, sağ üstteki"
+        " menüden trend çizgisi çizebilirsiniz."
+    )
+
+    ek_gostergeler = st.multiselect(
+        "Gösterilecek İndikatörler",
+        [
+            "Bollinger Bantları",
+            "Özel İndikatörüm",
+            "RSI (Alt Grafik)",
+            "MACD (Alt Grafik)",
+        ],
+        default=["Bollinger Bantları"],
+    )
+
+    aktif_secim = st.session_state["secilen_aktif_grafik"]
+    df = veri_cek(aktif_secim, aralik=aktif_ayarlar["zaman_dilimi"])
+
+    if df is not None and not df.empty:
+      df_analiz = hesapla_teknikler(df)
+      analiz = donusum_noktalari_hesapla(df_analiz)
+      sinyal = sinyal_kontrol(df_analiz)
+
+      satir_sayisi = 1
+      row_heights = [0.7]
+      if "RSI (Alt Grafik)" in ek_gostergeler:
+        satir_sayisi += 1
+        row_heights.append(0.2)
+      if "MACD (Alt Grafik)" in ek_gostergeler:
+        satir_sayisi += 1
+        row_heights.append(0.2)
+      if satir_sayisi == 1:
+        row_heights = [1]
+
+      fig = make_subplots(
+          rows=satir_sayisi,
+          cols=1,
+          shared_xaxes=True,
+          vertical_spacing=0.03,
+          row_heights=row_heights,
+      )
+
+      fig.add_trace(
+          go.Candlestick(
+              x=df_analiz["tarih"],
+              open=df_analiz["open"],
+              high=df_analiz["high"],
+              low=df_analiz["low"],
+              close=df_analiz["close"],
+              name="Fiyat",
+          ),
+          row=1,
+          col=1,
+      )
+      fig.add_hline(
+          y=analiz["destek"],
+          line_dash="dot",
+          line_color="green",
+          annotation_text="Destek",
+          row=1,
+          col=1,
+      )
+      fig.add_hline(
+          y=analiz["direnc"],
+          line_dash="dot",
+          line_color="red",
+          annotation_text="Direnç",
+          row=1,
+          col=1,
+      )
+
+      if "Bollinger Bantları" in ek_gostergeler:
+        fig.add_trace(
+            go.Scatter(
+                x=df_analiz["tarih"],
+                y=df_analiz["bollinger_ust"],
+                name="Bol. Üst",
+                line=dict(color="rgba(173,216,230,0.5)", width=1, dash="dash"),
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=df_analiz["tarih"],
+                y=df_analiz["bollinger_alt"],
+                name="Bol. Alt",
+                fill="tonexty",
+                fillcolor="rgba(173,216,230,0.1)",
+                line=dict(color="rgba(173,216,230,0.5)", width=1, dash="dash"),
+            ),
+            row=1,
+            col=1,
+        )
+
+      guncel_satir = 2
+      if "RSI (Alt Grafik)" in ek_gostergeler:
+        fig.add_trace(
+            go.Scatter(
+                x=df_analiz["tarih"],
+                y=df_analiz["rsi"],
+                name="RSI",
+                line=dict(color="purple", width=1.5),
+            ),
+            row=guncel_satir,
+            col=1,
+        )
+        guncel_satir += 1
+
+      if "MACD (Alt Grafik)" in ek_gostergeler:
+        fig.add_trace(
+            go.Scatter(
+                x=df_analiz["tarih"],
+                y=df_analiz["macd"],
+                name="MACD",
+                line=dict(color="blue"),
+            ),
+            row=guncel_satir,
+            col=1,
+        )
+
+      fig.update_layout(
+          template="plotly_dark",
+          height=650 if satir_sayisi == 1 else 850,
+          margin=dict(l=0, r=0, t=30, b=0),
+          xaxis_rangeslider_visible=False,
+          dragmode="zoom",
+          hovermode="x unified",
+      )
+
+      st.plotly_chart(
+          fig,
+          use_container_width=True,
+          config={
+              "scrollZoom": True,
+              "displayModeBar": True,
+              "modeBarButtonsToAdd": [
+                  "drawline",
+                  "drawopenpath",
+                  "eraseshape",
+              ],
+          },
+      )
 
 elif sayfa == "⚙️ Bot Ayarları":
-    st.title("⚙️ Ayarlar")
-    zaman_secenekleri = ["15m", "1h", "4h", "1d"]
-    zaman_index = zaman_secenekleri.index(aktif_ayarlar.get("zaman_dilimi", "1h"))
-    yeni_zaman = st.selectbox("Teknik Analiz Zaman Dilimi", zaman_secenekleri, index=zaman_index)
-    
-    sikliklar = {15: "15 Dakika", 30: "Yarım Saat", 60: "1 Saat", 120: "2 Saat", 240: "4 Saat"}
-    mevcut_siklik = aktif_ayarlar.get("bot_sikligi_dk", 60)
-    yeni_siklik_etiket = st.selectbox("Telegram Bildirim Sıklığı", list(sikliklar.values()), index=list(sikliklar.keys()).index(mevcut_siklik) if mevcut_siklik in sikliklar else 2)
-    yeni_siklik = list(sikliklar.keys())[list(sikliklar.values()).index(yeni_siklik_etiket)]
-    
-    if st.button("💾 AYARLARI KAYDET", type="primary"):
-        aktif_ayarlar["zaman_dilimi"], aktif_ayarlar["bot_sikligi_dk"] = yeni_zaman, yeni_siklik
-        ayarlari_kaydet(aktif_ayarlar)
-        st.success("Ayarlar başarıyla kaydedildi!")
-        time.sleep(1)
-        st.rerun()
+  st.title("⚙️ Ayarlar")
+  zaman_secenekleri = ["15m", "1h", "4h", "1d"]
+  zaman_index = zaman_secenekleri.index(
+      aktif_ayarlar.get("zaman_dilimi", "1h")
+  )
+  yeni_zaman = st.selectbox(
+      "Teknik Analiz Zaman Dilimi", zaman_secenekleri, index=zaman_index
+  )
+
+  sikliklar = {
+      15: "15 Dakika",
+      30: "Yarım Saat",
+      60: "1 Saat",
+      120: "2 Saat",
+      240: "4 Saat",
+  }
+  mevcut_siklik = aktif_ayarlar.get("bot_sikligi_dk", 60)
+  yeni_siklik_etiket = st.selectbox(
+      "Telegram Bildirim Sıklığı",
+      list(sikliklar.values()),
+      index=list(sikliklar.keys()).index(mevcut_siklik)
+      if mevcut_siklik in sikliklar
+      else 2,
+  )
+  yeni_siklik = list(sikliklar.keys())[
+      list(sikliklar.values()).index(yeni_siklik_etiket)
+  ]
+
+  if st.button("💾 AYARLARI KAYDET", type="primary"):
+    aktif_ayarlar["zaman_dilimi"], aktif_ayarlar["bot_sikligi_dk"] = (
+        yeni_zaman,
+        yeni_siklik,
+    )
+    ayarlari_kaydet(aktif_ayarlar)
+    st.success("Ayarlar başarıyla kaydedildi!")
+    time.sleep(1)
+    st.rerun()
