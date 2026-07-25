@@ -87,7 +87,7 @@ def otomatik_tarama_botu():
     while True:
         try:
             ayarlar = ayarlari_yukle()
-            varliklar = ayarlar.get("varliklar", [])
+            varliklar = sorted(ayarlar.get("varliklar", []))
             zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
             bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
 
@@ -412,12 +412,12 @@ if sayfa == "📚 Varlık Havuzu":
     with tab_ozel:
         st.subheader("⭐ Özel Olarak Eklediğiniz Varlıklar")
         tum_hazir_kodlar = {kod for kat in HAZIR_VARLIKLAR.values() for kod in kat.values()}
-        ozel_kodlar = [k for k in secilenler if k not in tum_hazir_kodlar]
+        ozel_kodlar = sorted([k for k in secilenler if k not in tum_hazir_kodlar])
         
         if not ozel_kodlar:
             st.info("Henüz özel olarak eklenmiş ek bir varlık bulunmuyor. Aşağıdaki alandan yeni özel varlık ekleyebilirsiniz.")
         else:
-            for kod in sorted(ozel_kodlar):
+            for kod in ozel_kodlar:
                 if st.checkbox(f"Özel Varlık: {kod}", value=(kod in secilenler), key=f"ozel_{kod}"):
                     secilenler.add(kod)
                 else:
@@ -434,7 +434,7 @@ if sayfa == "📚 Varlık Havuzu":
     )
     if st.button("➕ Özel Varlık Ekle") and manuel:
         secilenler.add(manuel)
-        aktif_ayarlar["varliklar"] = list(secilenler)
+        aktif_ayarlar["varliklar"] = sorted(list(secilenler))
         ayarlari_kaydet(aktif_ayarlar)
         st.success(f"{manuel} eklendi!")
         time.sleep(0.5)
@@ -446,11 +446,10 @@ if sayfa == "📚 Varlık Havuzu":
         use_container_width=True,
         type="primary",
     ):
-        aktif_ayarlar["varliklar"] = list(secilenler)
+        aktif_ayarlar["varliklar"] = sorted(list(secilenler))
         ayarlari_kaydet(aktif_ayarlar)
         st.success(
-            "Seçtiğiniz varlıklar listeye sabitlendi ve kaydedildi! Tüm analizler"
-            " bu sabit liste üzerinden gerçekleştirilecektir."
+            "Seçtiğiniz varlıklar alfabetik olarak sıralandı, sabitlendi ve kaydedildi!"
         )
         time.sleep(1)
         st.rerun()
@@ -494,7 +493,7 @@ elif sayfa == "💼 Portföy Yönetimi":
     ):
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            mevcut_havuz = aktif_ayarlar.get("varliklar", ["BTC-USD"])
+            mevcut_havuz = sorted(aktif_ayarlar.get("varliklar", ["BTC-USD"]))
             p_varlik = st.selectbox("Varlık Seç", mevcut_havuz)
         with col2:
             p_tarih = st.date_input("Alım Tarihi", value=datetime.date.today())
@@ -536,7 +535,7 @@ elif sayfa == "💼 Portföy Yönetimi":
         toplam_portfoy_guncel_degeri = 0
         silinecekler = []
 
-        for v_kod, v_veri in aktif_portfoy.items():
+        for v_kod, v_veri in sorted(aktif_portfoy.items()):
             df_canli = veri_cek(v_kod, aralik="1h")
             if df_canli is not None and len(df_canli) >= 2:
                 anlik_fiyat = df_canli["close"].iloc[-1]
@@ -622,7 +621,7 @@ elif sayfa == "⏳ Geriye Dönük Test":
         " kârlılığını test edin. **Başlangıç Bakiyesi: 10,000 $**"
     )
 
-    mevcut_varliklar = aktif_ayarlar.get("varliklar", ["BTC-USD"])
+    mevcut_varliklar = sorted(aktif_ayarlar.get("varliklar", ["BTC-USD"]))
     test_edilecek = st.selectbox("Test Edilecek Varlık", mevcut_varliklar)
 
     if st.button("🚀 Backtest'i Başlat", type="primary"):
@@ -663,12 +662,12 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
     st.title(
         "📈 Sabit Varlık Sinyal Listesi, Geçiş Zamanları, Stop-Loss ve TP Kontrolü"
     )
-    mevcut_varliklar = aktif_ayarlar.get("varliklar", [])
+    mevcut_varliklar = sorted(aktif_ayarlar.get("varliklar", []))
 
     if not mevcut_varliklar:
         st.warning("Lütfen Varlık Havuzundan varlık seçin ve sabitleyin.")
     else:
-        if "secilen_aktif_grafik" not in st.session_state:
+        if "secilen_aktif_grafik" not in st.session_state or st.session_state["secilen_aktif_grafik"] not in mevcut_varliklar:
             st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
         st.subheader(
