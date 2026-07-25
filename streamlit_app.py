@@ -27,10 +27,19 @@ st.markdown(
 # --- AYAR VE VERİ YÖNETİMİ ---
 AYAR_DOSYASI = "ayarlar.json"
 PORTFOY_DOSYASI = "portfoy_arsiv.json"
+SANAL_CUZDAN_DOSYASI = "sanal_cuzdan_arsiv.json"
+
 VARSAYILAN_AYARLAR = {
-    "varliklar": ["AAPL", "BTC-USD", "SPY", "THYAO.IS"],
+    "varliklar": ["AAPL", "BTC-USD", "ETH-USD", "SPY", "THYAO.IS"],
     "zaman_dilimi": "1h",
     "bot_sikligi_dk": 60,
+}
+
+VARSAYILAN_SANAL_CUZDAN = {
+    "nakit": 10000.0,
+    "baslangic_nakit": 10000.0,
+    "pozisyonlar": {},  # {varlik: {"adet": x, "maliyet": y, "tarih": z}}
+    "gecmis_islemler": []
 }
 
 
@@ -66,6 +75,23 @@ def portfoy_kaydet(portfoy_verisi):
         json.dump(portfoy_verisi, f)
 
 
+def sanal_cuzdan_yukle():
+    if not os.path.exists(SANAL_CUZDAN_DOSYASI):
+        with open(SANAL_CUZDAN_DOSYASI, "w") as f:
+            json.dump(VARSAYILAN_SANAL_CUZDAN, f)
+        return VARSAYILAN_SANAL_CUZDAN
+    try:
+        with open(SANAL_CUZDAN_DOSYASI, "r") as f:
+            return json.load(f)
+    except:
+        return VARSAYILAN_SANAL_CUZDAN
+
+
+def sanal_cuzdan_kaydet(cuzdan_verisi):
+    with open(SANAL_CUZDAN_DOSYASI, "w") as f:
+        json.dump(cuzdan_verisi, f)
+
+
 # --- İNTERNETTEN VARLIK ARAMA FONKSİYONU ---
 def internette_varlik_ara(sorgu):
     try:
@@ -90,13 +116,78 @@ def internette_varlik_ara(sorgu):
         return []
 
 
+# --- OTONOM SANAL CÜZDAN AL-SAT MOTORU ---
+def otonom_islem_calistir():
+    cuzdan = sanal_cuzdan_yukle()
+    ayarlar = ayarlari_yukle()
+    varliklar = ayarlar.get("varliklar", [])
+    zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
+    
+    islem_raporu = ""
+    degisiklik_oldu = False
+
+    for varlik in varliklar:
+        df = veri_cek(varlik, aralik=zaman_dilimi)
+        if df is not None and not df.empty:
+            df_analiz = hesapla_teknikler(df)
+            p_sinyal = sinyal_kontrol(df_analiz)
+            guncel_fiyat = df_analiz["close"].iloc[-1]
+            tarih_str = str(df_analiz["tarih"].iloc[-1])
+
+            sinyal_ust = p_sinyal.upper()
+            
+            # AL SİNYALİ VE NAKİT VARSA
+            if ("AL" in sinyal_ust or "YÜKSELİŞ" in sinyal_ust) and varlik not in cuzdan["pozisyonlar"]:
+                harcanacak_nakit = cuzdan["nakit"] * 0.25  # Her işlemde nakdin %25'i
+                if harcanacak_nakit > 10:
+                    adet = harcanacak_nakit / guncel_fiyat
+                    cuzdan["nakit"] -= harcanacak_nakit
+                    cuzdan["pozisyonlar"][varlik] = {
+                        "adet": adet,
+                        "maliyet": guncel_fiyat,
+                        "tarih": tarih_str
+                    }
+                    islem_raporu += f"🟢 **[OTONOM AL]** `{varlik}` | Fiyat: `{guncel_fiyat:.2f}` | Tutar: `{harcanacak_nakit:.2f} $`\n"
+                    cuzdan["gecmis_islemler"].append({
+                        "islem": "AL",
+                        "varlik": varlik,
+                        "fiyat": guncel_fiyat,
+                        "tarih": tarih_str,
+                        "tutar": harcanacak_nakit
+                    })
+                    degisiklik_oldu = True
+
+            # SAT SİNYALİ VE POZİSYON VARSA
+            elif ("SAT" in sinyal_ust or "DÜŞÜŞ" in sinyal_ust) and varlik in cuzdan["pozisyonlar"]:
+                poz = cuzdan["pozisyonlar"][varlik]
+                satis_degeri = poz["adet"] * guncel_fiyat
+                kar_zarar = satis_degeri - (poz["adet"] * poz["maliyet"])
+                cuzdan["nakit"] += satis_degeri
+                
+                islem_raporu += f"🔴 **[OTONOM SAT]** `{varlik}` | Fiyat: `{guncel_fiyat:.2f}` | K/Z: `{kar_zarar:+.2f} $`\n"
+                cuzdan["gecmis_islemler"].append({
+                    "islem": "SAT",
+                    "varlik": varlik,
+                    "fiyat": guncel_fiyat,
+                    "tarih": tarih_str,
+                    "tutar": satis_degeri,
+                    "kar_zarar": kar_zarar
+                })
+                del cuzdan["pozisyonlar"][varlik]
+                degisiklik_oldu = True
+
+    if degisiklik_oldu:
+        sanal_cuzdan_kaydet(cuzdan)
+
+    return islem_raporu, cuzdan
+
+
 # --- DETAYLI TEKNİK ANALİZ VE YORUM OLUŞTURUCU ---
 def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
     fiyat = p_analiz["fiyat"]
     d1 = p_analiz["destek"]
     r1 = p_analiz["direnc"]
 
-    # Çoklu Destek (S1, S2, S3) ve Direnç (R1, R2, R3) Seviyeleri
     s1 = d1
     s2 = s1 * 0.985
     s3 = s1 * 0.970
@@ -105,14 +196,12 @@ def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
     r2 = r1_val * 1.015
     r3 = r1_val * 1.030
 
-    # Stop-Loss ve Take-Profit
     stop_loss = s1 if s1 < fiyat else fiyat * 0.97
     take_profit = r1_val if r1_val > fiyat else fiyat * 1.05
 
     is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
     gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
 
-    # Trend ve Geçiş Seviyesi Yorumlama
     sinyal_ust = p_sinyal.upper()
     if "AL" in sinyal_ust or "YÜKSELİŞ" in sinyal_ust:
         trend_yorum = "📈 *Yükseliş Trendi Hâkim.* Fiyat yukarı yönlü direnç bölgelerini test ediyor."
@@ -124,9 +213,8 @@ def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
         trend_yorum = "⚖️ *Yatay / Belirsiz Seyir.* Konsolidasyon alanı içerisinde hareket ediyor."
         gecis_yorum = f"Kırılım Seviyeleri: `{r1_val:.2f}` Üstü Yükseliş | `{s1:.2f}` Altı Düşüş"
 
-    # Sahte Sinyal Yorumlama
     if is_fake:
-        sahte_yorum = "⚠️ *SİNYAL UYARISI:* Sahte/Tuzak sinyal tespit edildi! Hacim veya yardımcı indikatör doğrulaması zayıf. Temkinli olunmalı."
+        sahte_yorum = "⚠️ *SİNYAL UYARISI:* Sahte/Tuzak sinyal tespit edildi! Hacim veya yardımcı indikatör doğrulaması zayıf."
     else:
         sahte_yorum = "✅ *GÜVENİLİR SİNYAL:* İndikatör ve hacim teyidi mevcut."
 
@@ -169,8 +257,15 @@ def otomatik_tarama_botu():
             zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
             bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
 
+            # Otonom işlem turunu çalıştır
+            otonom_rapor, cuzdan_sonuc = otonom_islem_calistir()
+
             if varliklar:
-                telegram_toplu_mesaj = f"📊 *Otomatik Detaylı Sinyal ve Teknik Analiz Raporu* (Periyot: {zaman_dilimi})\n\n"
+                telegram_toplu_mesaj = f"📊 *Otomatik Analiz ve Otonom Cüzdan Raporu* (Periyot: {zaman_dilimi})\n\n"
+                
+                if otonom_rapor:
+                    telegram_toplu_mesaj += f"🤖 *Otonom Al-Sat Hareketleri:*\n{otonom_rapor}\n-------------------\n"
+
                 for varlik in varliklar:
                     df_t = veri_cek(varlik, aralik=zaman_dilimi)
                     if df_t is not None and not df_t.empty:
@@ -250,6 +345,7 @@ sayfa = st.sidebar.radio(
     [
         "📚 Varlık Havuzu",
         "📈 Canlı Analiz & Sinyaller",
+        "🤖 Otonom Sanal Cüzdan",
         "💼 Portföy Yönetimi",
         "⏳ Geriye Dönük Test",
         "⚙️ Bot Ayarları",
@@ -503,7 +599,7 @@ if sayfa == "📚 Varlık Havuzu":
         ozel_kodlar = sorted([k for k in secilenler if k not in tum_hazir_kodlar])
         
         if not ozel_kodlar:
-            st.info("Henüz özel olarak eklenmiş ek bir varlık bulunmuyor. Aşağıdaki alandan yeni özel varlık aratıp ekleyebilirsiniz.")
+            st.info("Henüz özel olarak eklenmiş ek bir varlık bulunmuyor.")
         else:
             for kod in ozel_kodlar:
                 if st.checkbox(f"Özel Varlık: {kod}", value=(kod in secilenler), key=f"ozel_{kod}"):
@@ -513,23 +609,14 @@ if sayfa == "📚 Varlık Havuzu":
 
     st.divider()
     st.subheader("🔎 İnternetten Varlık Arama ve Ekleme")
-    st.markdown("Bir varlığın adını, kısaltmasını veya onu andıran bir kelimeyi yazın (Örn: *Apple*, *Garanti*, *Ethereum*), sistem doğru kodu internetten bulsun.")
-    
-    if "arama_sonuclari" not in st.session_state:
-        st.session_state["arama_sonuclari"] = []
-
     arama_sorgusu = st.text_input("Arama Kelimesi veya Kısaltma", key="arama_input")
 
-    col_ara1, col_ara2 = st.columns([1, 4])
-    with col_ara1:
-        if st.button("🔍 İnternette Ara"):
-            if arama_sorgusu:
-                with st.spinner("Varlık aranıyor..."):
-                    st.session_state["arama_sonuclari"] = internette_varlik_ara(arama_sorgusu)
-                    if not st.session_state["arama_sonuclari"]:
-                        st.warning("Eşleşen varlık bulunamadı.")
+    if st.button("🔍 İnternette Ara"):
+        if arama_sorgusu:
+            with st.spinner("Varlık aranıyor..."):
+                st.session_state["arama_sonuclari"] = internette_varlik_ara(arama_sorgusu)
 
-    if st.session_state["arama_sonuclari"]:
+    if "arama_sonuclari" in st.session_state and st.session_state["arama_sonuclari"]:
         st.markdown("---")
         secenekler = {f"{item['symbol']} — {item['name']} ({item['exchange']})": item['symbol'] for item in st.session_state["arama_sonuclari"]}
         secilen_etiket = st.selectbox("Bulunan Sonuçlar:", list(secenekler.keys()), key="secilen_arama_sonucu")
@@ -539,29 +626,21 @@ if sayfa == "📚 Varlık Havuzu":
             secilenler.add(secilen_kod)
             aktif_ayarlar["varliklar"] = sorted(list(secilenler))
             ayarlari_kaydet(aktif_ayarlar)
-            st.success(f"{secilen_kod} başarıyla eklendi ve kaydedildi!")
+            st.success(f"{secilen_kod} başarıyla eklendi!")
             st.session_state["arama_sonuclari"] = []
             time.sleep(0.5)
             st.rerun()
 
     st.divider()
-    if st.button(
-        "💾 SEÇİMLERİ SABİTLE VE KAYDET",
-        use_container_width=True,
-        type="primary",
-    ):
+    if st.button("💾 SEÇİMLERİ SABİTLE VE KAYDET", use_container_width=True, type="primary"):
         aktif_ayarlar["varliklar"] = sorted(list(secilenler))
         ayarlari_kaydet(aktif_ayarlar)
-        st.success(
-            "Seçtiğiniz varlıklar alfabetik olarak sıralandı, sabitlendi ve kaydedildi!"
-        )
+        st.success("Seçtiğiniz varlıklar kaydedildi!")
         time.sleep(1)
         st.rerun()
 
 elif sayfa == "⚙️ Bot Ayarları":
     st.title("⚙️ Bot ve Zaman Dilimi Ayarları")
-    st.markdown("Otomatik tarama botunun çalışma sıklığını ve analiz periyodunu buradan yapılandırabilirsiniz.")
-
     zaman_dilimleri = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
     mevcut_zaman_dilimi = aktif_ayarlar.get("zaman_dilimi", "1h")
     
@@ -572,29 +651,91 @@ elif sayfa == "⚙️ Bot Ayarları":
     )
 
     mevcut_siklik = aktif_ayarlar.get("bot_sikligi_dk", 60)
-    secilen_siklik = st.number_input(
-        "Otomatik Telegram Bildirim Sıklığı (Dakika)",
-        min_value=1,
-        value=int(mevcut_siklik),
-        step=1
-    )
+    secilen_siklik = st.number_input("Otomatik Telegram Bildirim Sıklığı (Dakika)", min_value=1, value=int(mevcut_siklik), step=1)
 
     st.divider()
     if st.button("💾 Ayarları Kaydet", type="primary", use_container_width=True):
         aktif_ayarlar["zaman_dilimi"] = secilen_zaman_dilimi
         aktif_ayarlar["bot_sikligi_dk"] = int(secilen_siklik)
         ayarlari_kaydet(aktif_ayarlar)
-        st.success("Bot ayarları başarıyla güncellendi!")
+        st.success("Bot ayarları güncellendi!")
         time.sleep(1)
         st.rerun()
+
+elif sayfa == "🤖 Otonom Sanal Cüzdan":
+    st.title("🤖 Otonom Sanal Cüzdan (Paper Trading Simülasyonu)")
+    st.markdown("Sistem, aktif varlık listendeki coin/hisse senetlerini analiz ederek **yükselişlerde (AL)** sanal bütçeyle alım yapar, **düşüşlerde (SAT)** pozisyon kapatarak kâr/zarar hesabı tutar. Bu süreç arka planda Telegram'a da raporlanır.")
+
+    cuzdan_data = sanal_cuzdan_yukle()
+
+    col_b1, col_b2, col_b3 = st.columns(3)
+    
+    # Anlık değer hesaplama
+    toplam_pozisyon_degeri = 0
+    for v_kod, poz in cuzdan_data["pozisyonlar"].items():
+        df_c = veri_cek(v_kod, aralik=aktif_ayarlar["zaman_dilimi"])
+        if df_c is not None and not df_c.empty:
+            anlik_f = df_c["close"].iloc[-1]
+            toplam_pozisyon_degeri += poz["adet"] * anlik_f
+
+    toplam_servet = cuzdan_data["nakit"] + toplam_pozisyon_degeri
+    net_kazanc = toplam_servet - cuzdan_data["baslangic_nakit"]
+    net_kazanc_yuzde = (net_kazanc / cuzdan_data["baslangic_nakit"]) * 100
+
+    col_b1.metric("Toplam Varlık (Servet)", f"{toplam_servet:.2f} $", f"%{net_kazanc_yuzde:+.2f}")
+    col_b2.metric("Nakit Bakiye", f"{cuzdan_data['nakit']:.2f} $")
+    col_b3.metric("Açık Pozisyon Değeri", f"{toplam_pozisyon_degeri:.2f} $")
+
+    st.divider()
+    col_islem1, col_islem2 = st.columns([2, 2])
+    with col_islem1:
+        if st.button("🔄 Otonom Turu Şimdi Çalıştır (Manuel Test)", type="primary", use_container_width=True):
+            with st.spinner("Piyasa taranıyor ve otonom al-sat kararları uygulanıyor..."):
+                rapor, yeni_cuzdan = otonom_islem_calistir()
+                if rapor:
+                    st.success("Otonom işlemler gerçekleştirildi!")
+                    st.markdown(rapor)
+                else:
+                    st.info("Mevcut sinyallere göre yeni bir işlem tetiklenmedi (Koşullar sağlanmadı).")
+                time.sleep(1)
+                st.rerun()
+    with col_islem2:
+        if st.button("🗑️ Sanal Cüzdanı Sıfırla (10,000 $)", use_container_width=True):
+            sanal_cuzdan_kaydet(VARSAYILAN_SANAL_CUZDAN)
+            st.success("Sanal cüzdan sıfırlandı.")
+            time.sleep(1)
+            st.rerun()
+
+    st.subheader("📂 Açık Sanal Pozisyonlar")
+    if not cuzdan_data["pozisyonlar"]:
+        st.info("Şu an açık olan herhangi bir sanal pozisyon bulunmuyor. Sinyaller olumluya döndüğünde bot otomatik alım yapacaktır.")
+    else:
+        for v_kod, poz in cuzdan_data["pozisyonlar"].items():
+            df_curr = veri_cek(v_kod, aralik=aktif_ayarlar["zaman_dilimi"])
+            curr_fiyat = df_curr["close"].iloc[-1] if df_curr is not None and not df_curr.empty else poz["maliyet"]
+            deger = poz["adet"] * curr_fiyat
+            maliyet_tutar = poz["adet"] * poz["maliyet"]
+            kar_ zarar = deger - maliyet_tutar
+            kar_zarar_yuzde = ((curr_fiyat - poz["maliyet"]) / poz["maliyet"]) * 100
+            
+            c_renk = "green" if kar_zarar >= 0 else "red"
+            
+            st.markdown(f"**Varlık:** `{v_kod}` | **Alış Tarihi:** `{poz['tarih']}`")
+            st.markdown(f"• Alış Maliyeti: `{poz['maliyet']:.2f}` | Anlık Fiyat: `{curr_fiyat:.2f}` | Lot: `{poz['adet']:.4f}`")
+            st.markdown(f"• Anlık Değer: `{deger:.2f} $` | K/Z: <span style='color:{c_renk}; font-weight:bold;'>{kar_zarar:+.2f} $ (%{kar_zarar_yuzde:+.2f})</span>", unsafe_allow_html=True)
+            st.divider()
+
+    st.subheader("📜 Otonom İşlem Geçmişi (Log)")
+    if not cuzdan_data["gecmis_islemler"]:
+        st.info("Henüz geçmiş işlem kaydı yok.")
+    else:
+        df_gecmis = pd.DataFrame(cuzdan_data["gecmis_islemler"])
+        st.dataframe(df_gecmis, use_container_width=True)
 
 elif sayfa == "💼 Portföy Yönetimi":
     st.title("💼 Portföy Yönetimi ve Detaylı Analiz")
 
-    with st.expander(
-        "➕ Yeni İşlem / Varlık Ekle (Tarih, Bütçe ve Lot Hesaplama)",
-        expanded=True,
-    ):
+    with st.expander("➕ Yeni İşlem / Varlık Ekle", expanded=True):
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             mevcut_havuz = sorted(aktif_ayarlar.get("varliklar", ["BTC-USD"]))
@@ -602,16 +743,9 @@ elif sayfa == "💼 Portföy Yönetimi":
         with col2:
             p_tarih = st.date_input("Alım Tarihi", value=datetime.date.today())
         with col3:
-            p_harcanan = st.number_input(
-                "Harcanan Tutar (Örn: 3000)",
-                min_value=0.0,
-                value=3000.0,
-                format="%.2f",
-            )
+            p_harcanan = st.number_input("Harcanan Tutar", min_value=0.0, value=3000.0, format="%.2f")
         with col4:
-            p_maliyet = st.number_input(
-                "Alış Fiyatı (Birim)", min_value=0.0, format="%.4f"
-            )
+            p_maliyet = st.number_input("Alış Fiyatı (Birim)", min_value=0.0, format="%.4f")
         with col5:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Kaydet", use_container_width=True, type="primary"):
@@ -624,14 +758,14 @@ elif sayfa == "💼 Portföy Yönetimi":
                         "adet": p_adet,
                     }
                     portfoy_kaydet(aktif_portfoy)
-                    st.success(f"Kayıt eklendi! Karşılığı: {p_adet:.4f} Lot")
+                    st.success(f"Kayıt eklendi! Lot: {p_adet:.4f}")
                     time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Alış fiyatı 0'dan büyük olmalıdır!")
 
     st.divider()
-    st.subheader("📊 Portföy Canlı Durumu ve Günlük Değişimler")
+    st.subheader("📊 Portföy Canlı Durumu")
     if not aktif_portfoy:
         st.info("Henüz portföyünüze veri eklemediniz.")
     else:
@@ -646,24 +780,16 @@ elif sayfa == "💼 Portföy Yönetimi":
                 onceki_fiyat = df_canli["close"].iloc[-2]
 
                 tarih = v_veri.get("tarih", "Bilinmiyor")
-                harcanan = v_veri.get(
-                    "harcanan", v_veri.get("maliyet", 0) * v_veri.get("adet", 0)
-                )
+                harcanan = v_veri.get("harcanan", v_veri.get("maliyet", 0) * v_veri.get("adet", 0))
                 maliyet = v_veri["maliyet"]
                 adet = v_veri["adet"]
 
                 guncel_deger = anlik_fiyat * adet
                 toplam_kar = guncel_deger - harcanan
-                toplam_kar_yuzde = (
-                    ((anlik_fiyat - maliyet) / maliyet) * 100 if maliyet > 0 else 0
-                )
+                toplam_kar_yuzde = ((anlik_fiyat - maliyet) / maliyet) * 100 if maliyet > 0 else 0
 
                 gunluk_fark_tutar = (anlik_fiyat - onceki_fiyat) * adet
-                gunluk_fark_yuzde = (
-                    ((anlik_fiyat - onceki_fiyat) / onceki_fiyat) * 100
-                    if onceki_fiyat > 0
-                    else 0
-                )
+                gunluk_fark_yuzde = ((anlik_fiyat - onceki_fiyat) / onceki_fiyat) * 100 if onceki_fiyat > 0 else 0
 
                 toplam_portfoy_maliyeti += harcanan
                 toplam_portfoy_guncel_degeri += guncel_deger
@@ -680,20 +806,10 @@ elif sayfa == "💼 Portföy Yönetimi":
                     st.markdown(f"**Güncel Değer:** `{guncel_deger:.2f}`")
                 with c3:
                     st.markdown(f"**Toplam K/Z:**")
-                    st.markdown(
-                        f"<span style='color:{t_renk};"
-                        f" font-weight:bold;'>{toplam_kar:+.2f}"
-                        f" (%{toplam_kar_yuzde:+.2f})</span>",
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown(f"<span style='color:{t_renk}; font-weight:bold;'>{toplam_kar:+.2f} (%{toplam_kar_yuzde:+.2f})</span>", unsafe_allow_html=True)
                 with c4:
                     st.markdown(f"**Günlük K/Z:**")
-                    st.markdown(
-                        f"<span style='color:{g_renk};"
-                        f" font-weight:bold;'>{gunluk_fark_tutar:+.2f}"
-                        f" (%{gunluk_fark_yuzde:+.2f})</span>",
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown(f"<span style='color:{g_renk}; font-weight:bold;'>{gunluk_fark_tutar:+.2f} (%{gunluk_fark_yuzde:+.2f})</span>", unsafe_allow_html=True)
                 with c5:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("🗑️ Sil", key=f"sil_{v_kod}"):
@@ -707,42 +823,27 @@ elif sayfa == "💼 Portföy Yönetimi":
 
         st.subheader("Genel Portföy Özeti")
         toplam_fark = toplam_portfoy_guncel_degeri - toplam_portfoy_maliyeti
-        genel_renk = "normal" if toplam_fark >= 0 else "inverse"
-
         t1, t2, t3 = st.columns(3)
         t1.metric("Toplam Harcanan (Maliyet)", f"{toplam_portfoy_maliyeti:.2f}")
         t2.metric("Portföy Güncel Değeri", f"{toplam_portfoy_guncel_degeri:.2f}")
-        t3.metric(
-            "Genel Toplam Kâr / Zarar",
-            f"{toplam_fark:+.2f}",
-            delta_color=genel_renk,
-        )
+        t3.metric("Genel Toplam Kâr / Zarar", f"{toplam_fark:+.2f}")
 
 elif sayfa == "⏳ Geriye Dönük Test":
     st.title("⏳ Strateji Testi (Backtest)")
-    st.markdown(
-        "Seçtiğiniz varlık ve zaman diliminde bot stratejisinin geçmiş"
-        " kârlılığını test edin. **Başlangıç Bakiyesi: 10,000 $**"
-    )
+    st.markdown("Seçtiğiniz varlık ve zaman diliminde bot stratejisinin geçmiş kârlılığını test edin. **Başlangıç Bakiyesi: 10,000 $**")
 
     mevcut_varliklar = sorted(aktif_ayarlar.get("varliklar", ["BTC-USD"]))
     test_edilecek = st.selectbox("Test Edilecek Varlık", mevcut_varliklar)
 
     if st.button("🚀 Backtest'i Başlat", type="primary"):
-        with st.spinner(
-            f"{test_edilecek} için geçmiş veriler taranıyor ve simülasyon"
-            " yapılıyor..."
-        ):
+        with st.spinner("Geçmiş veriler taranıyor ve simülasyon yapılıyor..."):
             df_test = veri_cek(test_edilecek, aralik=aktif_ayarlar["zaman_dilimi"])
             if df_test is not None and not df_test.empty:
                 df_test_analiz = hesapla_teknikler(df_test)
                 sonuclar = calistir_backtest(df_test_analiz)
 
                 st.divider()
-                st.subheader(
-                    f"📊 {test_edilecek} Backtest Sonuçları (Periyot:"
-                    f" {aktif_ayarlar['zaman_dilimi']})"
-                )
+                st.subheader(f"📊 {test_edilecek} Backtest Sonuçları (Periyot: {aktif_ayarlar['zaman_dilimi']})")
 
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Net Kâr Yüzdesi", f"%{sonuclar['net_kar_yuzde']:.2f}")
@@ -755,17 +856,12 @@ elif sayfa == "⏳ Geriye Dönük Test":
                     df_islemler = pd.DataFrame(sonuclar["islemler"])
                     st.dataframe(df_islemler, use_container_width=True)
                 else:
-                    st.warning(
-                        "Bu periyotta stratejiye uygun herhangi bir Al/Sat kesişimi"
-                        " bulunamadı."
-                    )
+                    st.warning("Bu periyotta stratejiye uygun işlem bulunamadı.")
             else:
-                st.error("Veri çekilemedi. Lütfen daha sonra tekrar deneyin.")
+                st.error("Veri çekilemedi.")
 
 elif sayfa == "📈 Canlı Analiz & Sinyaller":
-    st.title(
-        "📈 Sabit Varlık Sinyal Listesi, Çoklu Destek/Direnç ve Detaylı Teknik Yorum"
-    )
+    st.title("📈 Sabit Varlık Sinyal Listesi, Çoklu Destek/Direnç ve Detaylı Teknik Yorum")
     mevcut_varliklar = sorted(aktif_ayarlar.get("varliklar", []))
 
     if not mevcut_varliklar:
@@ -774,9 +870,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
         if "secilen_aktif_grafik" not in st.session_state or st.session_state["secilen_aktif_grafik"] not in mevcut_varliklar:
             st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
-        st.subheader(
-            "📋 Sabit Liste Sinyalleri, Destek-Direnç Kademeleri ve Yorum Raporu"
-        )
+        st.subheader("📋 Sabit Liste Sinyalleri, Destek-Direnç Kademeleri ve Yorum Raporu")
 
         telegram_toplu_mesaj = f"📊 *Sabit Liste Toplu Sinyal ve Detaylı Teknik Rapor* (Periyot: {aktif_ayarlar['zaman_dilimi']})\n\n"
 
@@ -797,55 +891,26 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                     st.markdown(detay_metni)
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button(
-                        f"📊 Grafiği İncele",
-                        key=f"btn_list_{varlik}",
-                        use_container_width=True,
-                    ):
+                    if st.button(f"📊 Grafiği İncele", key=f"btn_list_{varlik}", use_container_width=True):
                         st.session_state["secilen_aktif_grafik"] = varlik
                         st.rerun()
                 st.divider()
 
-        if st.button(
-            "📤 Tüm Sabit Listenin Detaylı Analizini Telegram'a Şimdi Gönder",
-            type="primary",
-            use_container_width=True,
-        ):
+        if st.button("📤 Tüm Sabit Listenin Detaylı Analizini Telegram'a Şimdi Gönder", type="primary", use_container_width=True):
             telegram_bildirim_gonder(telegram_toplu_mesaj)
-            st.success(
-                "Sabit listedeki tüm varlıkların detaylı analizi ve yorumları Telegram'a başarıyla gönderildi!"
-            )
+            st.success("Tüm analizler Telegram'a gönderildi!")
 
         st.divider()
-        st.header(
-            "📊 Gelişmiş Grafik İncelemesi ve İnteraktif Modlar:"
-            f" `{st.session_state['secilen_aktif_grafik']}`"
-        )
+        st.header(f"📊 Gelişmiş Grafik İncelemesi: `{st.session_state['secilen_aktif_grafik']}`")
 
         col_mod1, col_mod2 = st.columns(2)
         with col_mod1:
-            grafik_modu = st.selectbox(
-                "Grafik Fare Modu (Etkileşim):",
-                [
-                    "🔍 Zoom (Yakınlaştır/Uzaklaştır)",
-                    "✋ Kaydırma / Pan (Grafiği Sürükle)",
-                ],
-            )
+            grafik_modu = st.selectbox("Grafik Fare Modu:", ["🔍 Zoom", "✋ Kaydırma / Pan"])
         drag_mode_val = "pan" if "Kaydırma" in grafik_modu else "zoom"
-
-        st.info(
-            "💡 **İpucu:** Fare tekerleğiyle (Scroll) her zaman zoom yapabilir,"
-            " yukarıdaki menüden veya butonlardan modu değiştirebilirsin."
-        )
 
         ek_gostergeler = st.multiselect(
             "Gösterilecek İndikatörler",
-            [
-                "Bollinger Bantları",
-                "Özel İndikatörüm",
-                "RSI (Alt Grafik)",
-                "MACD (Alt Grafik)",
-            ],
+            ["Bollinger Bantları", "Özel İndikatörüm", "RSI (Alt Grafik)", "MACD (Alt Grafik)"],
             default=["Bollinger Bantları"],
         )
 
@@ -855,12 +920,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
         if df is not None and not df.empty:
             df_analiz = hesapla_teknikler(df)
             
-            fig = make_subplots(
-                rows=2, cols=1, 
-                shared_xaxes=True, 
-                vertical_spacing=0.03, 
-                row_heights=[0.7, 0.3]
-            )
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
             
             fig.add_trace(
                 go.Candlestick(
