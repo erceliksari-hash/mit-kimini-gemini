@@ -426,7 +426,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
       st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
     st.subheader("📋 Sinyal Durumu ve Geçiş Zamanları Özeti")
-    
+
     telegram_toplu_mesaj = f"📊 *Toplu Sinyal ve Sahte Sinyal Analiz Raporu* (Periyot: {aktif_ayarlar['zaman_dilimi']})\n\n"
 
     for varlik in mevcut_varliklar:
@@ -478,10 +478,16 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
             st.rerun()
 
     st.divider()
-    # Manuel olarak anlık gönderme butonu da opsiyonel olarak duruyor
-    if st.button("📤 Tüm Seçili Varlıkların Özetini Telegram'a Şimdi Gönder", type="primary", use_container_width=True):
+    if st.button(
+        "📤 Tüm Seçili Varlıkların Özetini Telegram'a Şimdi Gönder",
+        type="primary",
+        use_container_width=True,
+    ):
       telegram_bildirim_gonder(telegram_toplu_mesaj)
-      st.success("Tüm varlıkların sinyal ve sahte sinyal özeti Telegram'a başarıyla gönderildi!")
+      st.success(
+          "Tüm varlıkların sinyal ve sahte sinyal özeti Telegram'a başarıyla"
+          " gönderildi!"
+      )
 
     st.divider()
     st.header(
@@ -543,6 +549,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           row_heights=row_heights,
       )
 
+      # 1. Mum Grafik (Candlestick)
       fig.add_trace(
           go.Candlestick(
               x=df_analiz["tarih"],
@@ -555,6 +562,47 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           row=1,
           col=1,
       )
+
+      # --- GRAFİK ÜZERİNE SİNYAL İŞARETLERİNİN (AL / SAT - LONG / SHORT) EKLENMESİ ---
+      if "sinyal_tarihsel" in df_analiz.columns:
+        df_al = df_analiz[df_analiz["sinyal_tarihsel"] == 1]
+        df_sat = df_analiz[df_analiz["sinyal_tarihsel"] == -1]
+
+        if not df_al.empty:
+          fig.add_trace(
+              go.Scatter(
+                  x=df_al["tarih"],
+                  y=df_al["low"] * 0.99,  # Mumun hemen altında
+                  mode="markers+text",
+                  text=["AL (Long)" for _ in range(len(df_al))],
+                  textposition="bottom center",
+                  marker=dict(
+                      symbol="triangle-up", size=14, color="#00FF7F"
+                  ),  # Parlak Yeşil Üçgen
+                  name="Yükselişe Geçiş (AL)",
+              ),
+              row=1,
+              col=1,
+          )
+
+        if not df_sat.empty:
+          fig.add_trace(
+              go.Scatter(
+                  x=df_sat["tarih"],
+                  y=df_sat["high"] * 1.01,  # Mumun hemen üstünde
+                  mode="markers+text",
+                  text=["SAT (Short)" for _ in range(len(df_sat))],
+                  textposition="top center",
+                  marker=dict(
+                      symbol="triangle-down", size=14, color="#FF4500"
+                  ),  # Parlak Kırmızı Üçgen
+                  name="Düşüşe Geçiş (SAT)",
+              ),
+              row=1,
+              col=1,
+          )
+      # -----------------------------------------------------------------------------
+
       fig.add_hline(
           y=analiz["destek"],
           line_dash="dot",
