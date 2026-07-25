@@ -1,4 +1,3 @@
-import streamlit as st
 import datetime
 import json
 import os
@@ -8,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
+import streamlit as st
 
 from config import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 from data_sources import veri_cek
@@ -416,7 +416,7 @@ elif sayfa == "⏳ Geriye Dönük Test":
         st.error("Veri çekilemedi. Lütfen daha sonra tekrar deneyin.")
 
 elif sayfa == "📈 Canlı Analiz & Sinyaller":
-  st.title("📈 Portföy Sinyal Listesi ve Gelişmiş Grafik")
+  st.title("📈 Portföy Sinyal Listesi, Geçiş Zamanları ve Sahte Sinyal Kontrolü")
   mevcut_varliklar = aktif_ayarlar.get("varliklar", [])
 
   if not mevcut_varliklar:
@@ -425,7 +425,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
     if "secilen_aktif_grafik" not in st.session_state:
       st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
-    st.subheader("📋 Sinyal ve Durum Özeti")
+    st.subheader("📋 Sinyal Durumu ve Geçiş Zamanları Özeti")
     for varlik in mevcut_varliklar:
       df_temp = veri_cek(varlik, aralik=aktif_ayarlar["zaman_dilimi"])
       if df_temp is not None and not df_temp.empty:
@@ -433,10 +433,23 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
         p_analiz = donusum_noktalari_hesapla(df_t_analiz)
         p_sinyal = sinyal_kontrol(df_t_analiz)
 
-        if "AL" in p_sinyal.upper():
-          durum_metni = "🚀 **YÜKSELİŞTE (LONG)**"
+        # Sahte Sinyal ve Geçiş Kontrolleri
+        is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
+        gecis_tipi = df_t_analiz.iloc[-1].get("gecis_durumu", "Nötr")
+        gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
+
+        if is_fake:
+          durum_metni = (
+              "⚠️ **SAHTE/ZAYIF SİNYAL TESPİT EDİLDİ!** (Düşük Güven)"
+          )
+        elif "AL" in p_sinyal.upper():
+          durum_metni = (
+              f"🚀 **YÜKSELİŞTE (LONG)** | Geçiş Zamanı: `{gecis_tarihi}`"
+          )
         elif "SAT" in p_sinyal.upper():
-          durum_metni = "⚠️ **DÜŞÜŞTE (SHORT)**"
+          durum_metni = (
+              f"⚠️ **DÜŞÜŞTE (SHORT)** | Geçiş Zamanı: `{gecis_tarihi}`"
+          )
         else:
           durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
 
@@ -457,12 +470,23 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
 
     st.divider()
     st.header(
-        "📊 Gelişmiş Grafik İncelemesi:"
+        "📊 Gelişmiş Grafik İncelemesi ve Kaydırma Kontrolleri:"
         f" `{st.session_state['secilen_aktif_grafik']}`"
     )
+
+    # Kullanıcıya Grafik Etkileşim Modu Seçeneği (Kaydırma / Zoom)
+    col_mod1, col_mod2 = st.columns(2)
+    with col_mod1:
+      grafik_modu = st.radio(
+          "Fare Modu:",
+          ["Zoom (Yakınlaştır/Uzaklaştır)", "Kaydırma / Pan (Grafiği Sürükle)"],
+          horizontal=True,
+      )
+    drag_mode_val = "pan" if "Kaydırma" in grafik_modu else "zoom"
+
     st.info(
-        "💡 **İpucu:** Grafikte fare tekerleği ile zoom yapabilir, sağ üstteki"
-        " menüden trend çizgisi çizebilirsiniz."
+        "💡 **İpucu:** Kaydırma modunu seçerek grafiği mouse ile sağa sola"
+        " rahatça sürükleyebilirsiniz."
     )
 
     ek_gostergeler = st.multiselect(
@@ -587,7 +611,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           height=650 if satir_sayisi == 1 else 850,
           margin=dict(l=0, r=0, t=30, b=0),
           xaxis_rangeslider_visible=False,
-          dragmode="zoom",
+          dragmode=drag_mode_val,  # Kaydırma veya Zoom modu
           hovermode="x unified",
       )
 
@@ -598,12 +622,47 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
               "scrollZoom": True,
               "displayModeBar": True,
               "modeBarButtonsToAdd": [
+                  "pan2d",
+                  "zoom2d",
                   "drawline",
                   "drawopenpath",
                   "eraseshape",
               ],
           },
       )
+
+      # --- GEÇİŞ ZAMANLARI VE SAHTE SİNYAL DETAY TABLOSU ---
+      st.subheader("🕒 Geçmiş Sinyal Geçişleri ve Sahte Sinyal Analizi")
+      if "sinyal_tarihsel" in df_analiz.columns:
+        gecmis_sinyaller = df_analiz[df_analiz["sinyal_tarihsel"] != 0].copy(
+            вища=True
+        )
+        if not gecmis_sinyaller.empty:
+          tablo_verisi = []
+          for _, row in gecmis_sinyaller.tail(10).iterrows():
+            t_tip = (
+                "🟢 Yükselişe Geçiş (AL)"
+                if row["sinyal_tarihsel"] == 1
+                else "🔴 Düşüşe Geçiş (SAT)"
+            )
+            s_durum = (
+                "⚠️ Sahte/Zayıf Sinyal"
+                if row.get("sahte_sinyal", False)
+                else "✅ Geçerli Sinyal"
+            )
+            tablo_verisi.append({
+                "Zaman": row["tarih"],
+                "Fiyat": round(row["close"], 4),
+                "Geçiş Tipi": t_tip,
+                "Durum Değerlendirmesi": s_durum,
+            })
+          st.dataframe(
+              pd.DataFrame(tablo_verisi),
+              use_container_width=True,
+              hide_index=True,
+          )
+        else:
+          st.info("Bu periyotta henüz kayıtlı bir sinyal geçişi bulunmuyor.")
 
 elif sayfa == "⚙️ Bot Ayarları":
   st.title("⚙️ Ayarlar")
