@@ -1,44 +1,32 @@
 import yfinance as yf
 import pandas as pd
 
-def veri_cek(sembol, aralik="1d"):
+def veri_cek(sembol, aralik="1h"):
+    """Belirtilen sembol için yfinance üzerinden veri çeker."""
     try:
-        # Zaman dilimine göre güvenli periyot belirleme
-        if aralik in ["15m", "1h"]:
-            period = "59d"  # Yahoo Finance 15m/1h için maksimum 60 gün sınırı koyar
-        elif aralik in ["4h"]:
-            period = "60d"
-        elif aralik in ["1d"]:
-            period = "1y"
-        elif aralik in ["1wk", "1mo"]:
-            period = "5y"
-        else:
-            period = "6mo"
+        # yfinance kısıtlamaları: kısa zaman dilimleri için 60 günlük sınır vardır
+        periyot = "60d" if aralik in ["15m", "30m", "1h"] else "1y"
+        df = yf.download(sembol, period=periyot, interval=aralik, progress=False)
         
-        ticker = yf.Ticker(sembol)
-        df = ticker.history(period=period, interval=aralik)
-        
-        if df is None or df.empty:
+        if df.empty:
             return None
             
-        df = df.reset_index()
-        df.columns = [c.lower() for c in df.columns]
+        df.reset_index(inplace=True)
+        # Sütun isimlerini standartlaştırma
+        df.rename(columns={
+            'Datetime': 'tarih', 
+            'Date': 'tarih', 
+            'Open': 'open', 
+            'High': 'high', 
+            'Low': 'low', 
+            'Close': 'close', 
+            'Volume': 'volume'
+        }, inplace=True)
         
-        # Sütun isim standardizasyonu
-        if 'datetime' in df.columns:
-            df = df.rename(columns={'datetime': 'tarih'})
-        elif 'date' in df.columns:
-            df = df.rename(columns={'date': 'tarih'})
-        elif 'index' in df.columns:
-            df = df.rename(columns={'index': 'tarih'})
+        # Eğer yfinance multi-index döndürürse düzleştir
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] for col in df.columns]
             
-        # Gerekli sütunların varlığını kontrol et
-        gerekli_sutunlar = ['tarih', 'open', 'high', 'low', 'close']
-        for sutun in gerekli_sutunlar:
-            if sutun not in df.columns:
-                return None
-                
         return df
     except Exception as e:
-        print(f"Veri çekme hatası ({sembol}): {e}")
         return None
