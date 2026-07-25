@@ -382,6 +382,34 @@ if sayfa == "📚 Varlık Havuzu":
     st.title("📚 Varlık Havuzu ve Piyasalar")
     secilenler = set(aktif_ayarlar["varliklar"])
 
+    # YENİ: Aktif Listeyi Doğrudan Yönetme ve Hızlı Silme Paneli
+    st.subheader("📋 Aktif Varlık Listesi ve Yönetimi (Silme İşlemi)")
+    st.markdown("Şu an takip edilen varlıklarınız aşağıdadır. İstemediğiniz bir varlığı yanındaki **❌ Çıkar** butonuna basarak anında listeden silebilirsiniz.")
+    
+    if not secilenler:
+        st.info("Aktif listenizde hiç varlık bulunmuyor.")
+    else:
+        aktif_liste_sirali = sorted(list(secilenler))
+        silinecekler_listesi = []
+        
+        # 4'lü sütunlar halinde listeleme
+        cols = st.columns(4)
+        for i, v_kod in enumerate(aktif_liste_sirali):
+            with cols[i % 4]:
+                if st.button(f"❌ Çıkar: {v_kod}", key=f"sil_aktif_{v_kod}", use_container_width=True):
+                    silinecekler_listesi.append(v_kod)
+        
+        if silinecekler_listesi:
+            for s_kod in silinecekler_listesi:
+                secilenler.discard(s_kod)
+            aktif_ayarlar["varliklar"] = sorted(list(secilenler))
+            ayarlari_kaydet(aktif_ayarlar)
+            st.success("Seçilen varlık listeden başarıyla çıkarıldı ve kaydedildi!")
+            time.sleep(0.5)
+            st.rerun()
+
+    st.divider()
+
     tab_bist, tab_kripto, tab_emtia, tab_nasdaq, tab_sp500, tab_ozel = st.tabs([
         "🇹🇷 BIST 100",
         "🪙 Kripto (İlk 50)",
