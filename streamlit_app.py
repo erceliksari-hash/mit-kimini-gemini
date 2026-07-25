@@ -646,17 +646,11 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
 
                 if is_fake:
-                    durum_metni = (
-                        "⚠️ **SAHTE/ZAYIF SİNYAL TESPİT EDİLDİ!** (Düşük Güven)"
-                    )
+                    durum_metni = "⚠️ **SAHTE / ZAYİF SİNYAL TESPİT EDİLDİ!**"
                 elif "AL" in p_sinyal.upper():
-                    durum_metni = (
-                        f"🚀 **YÜKSELİŞTE (LONG)** | Geçiş Zamanı: `{gecis_tarihi}`"
-                    )
+                    durum_metni = "🚀 **YÜKSELİŞTE (LONG)**"
                 elif "SAT" in p_sinyal.upper():
-                    durum_metni = (
-                        f"⚠️ **DÜŞÜŞTE (SHORT)** | Geçiş Zamanı: `{gecis_tarihi}`"
-                    )
+                    durum_metni = "⚠️ **DÜŞÜŞTE (SHORT)**"
                 else:
                     durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
 
@@ -670,13 +664,18 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                     f"   • Sahte Sinyal: `{'Evet ⚠️' if is_fake else 'Hayır ✅'}`\n\n"
                 )
 
+                # Arayüzde geçiş zamanı, sahte sinyal, SL ve TP değerlerinin net gösterimi
                 col_info, col_btn = st.columns([4, 1])
                 with col_info:
                     st.markdown(
-                        f"🔹 **{varlik}** | Fiyat: `{fiyat:.2f}` | Durum: {durum_metni} |"
-                        f" **SL:** `{stop_loss:.2f}` | **TP:** `{take_profit:.2f}`"
+                        f"🔹 **{varlik}** | Fiyat: `{fiyat:.2f}` | Durum: {durum_metni}\n\n"
+                        f"&nbsp;&nbsp;&nbsp;&nbsp;• **Geçiş Zamanı:** `{gecis_tarihi}` &nbsp;|&nbsp; "
+                        f"**Sahte Sinyal:** `{'Evet ⚠️ (Zayıf)' if is_fake else 'Hayır ✅ (Güvenli)'}`\n\n"
+                        f"&nbsp;&nbsp;&nbsp;&nbsp;• **Stop-Loss (SL):** `{stop_loss:.2f}` &nbsp;|&nbsp; "
+                        f"**Take-Profit (TP):** `{take_profit:.2f}`"
                     )
                 with col_btn:
+                    st.markdown("<br>", unsafe_allow_html=True)
                     if st.button(
                         f"📊 Grafiği İncele",
                         key=f"btn_list_{varlik}",
@@ -684,8 +683,8 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                     ):
                         st.session_state["secilen_aktif_grafik"] = varlik
                         st.rerun()
+                st.divider()
 
-        st.divider()
         if st.button(
             "📤 Tüm Sabit Listenin Özetini (SL ve TP Dahil) Telegram'a Şimdi"
             " Gönder",
