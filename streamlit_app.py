@@ -66,7 +66,7 @@ def portfoy_kaydet(portfoy_verisi):
     json.dump(portfoy_verisi, f)
 
 
-# --- TELEGRAM BOT VE BİLDİRİM ---
+# --- TELEGRAM BOT VE OTOMATİK RAPORLAMA ---
 def telegram_bildirim_gonder(mesaj):
   if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
     return
@@ -77,7 +77,7 @@ def telegram_bildirim_gonder(mesaj):
       "parse_mode": "Markdown",
   }
   try:
-    requests.post(url, json=payload)
+    requests.post(url, json=payload, timeout=10)
   except:
     pass
 
@@ -92,9 +92,7 @@ def otomatik_tarama_botu():
       bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
 
       if varliklar:
-        ozet_mesaj = (
-            f"🚨 *Otomatik Sinyal Raporu* (Periyot: {zaman_dilimi})\n\n"
-        )
+        telegram_toplu_mesaj = f"📊 *Otomatik Sinyal ve Sahte Sinyal Analiz Raporu* (Periyot: {zaman_dilimi})\n\n"
         for varlik in varliklar:
           df_t = veri_cek(varlik, aralik=zaman_dilimi)
           if df_t is not None and not df_t.empty:
@@ -102,15 +100,17 @@ def otomatik_tarama_botu():
             p_analiz = donusum_noktalari_hesapla(df_t_analiz)
             p_sinyal = sinyal_kontrol(df_t_analiz)
 
-            if "AL" in p_sinyal.upper():
-              pozisyon, sl = "🟢 *LONG*", p_analiz["destek"] * 0.99
-            elif "SAT" in p_sinyal.upper():
-              pozisyon, sl = "🔴 *SHORT*", p_analiz["direnc"] * 1.01
-            else:
-              pozisyon, sl = "⚪ *NÖTR*", p_analiz["destek"] * 0.98
+            is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
+            gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
 
-            ozet_mesaj += f"• *{varlik}*: Fiyat: `{p_analiz['fiyat']:.2f}` | {pozisyon} | SL: `{sl:.2f}`\n"
-        telegram_bildirim_gonder(ozet_mesaj)
+            telegram_toplu_mesaj += (
+                f"🔹 *{varlik}*\n"
+                f"   • Fiyat: `{p_analiz['fiyat']:.2f}`\n"
+                f"   • Durum: `{p_sinyal}`\n"
+                f"   • Geçiş Zamanı: `{gecis_tarihi}`\n"
+                f"   • Sahte Sinyal: `{'Evet ⚠️' if is_fake else 'Hayır ✅'}`\n\n"
+            )
+        telegram_bildirim_gonder(telegram_toplu_mesaj)
     except:
       pass
     time.sleep(bekleme_suresi)
@@ -426,6 +426,9 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
       st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
     st.subheader("📋 Sinyal Durumu ve Geçiş Zamanları Özeti")
+    
+    telegram_toplu_mesaj = f"📊 *Toplu Sinyal ve Sahte Sinyal Analiz Raporu* (Periyot: {aktif_ayarlar['zaman_dilimi']})\n\n"
+
     for varlik in mevcut_varliklar:
       df_temp = veri_cek(varlik, aralik=aktif_ayarlar["zaman_dilimi"])
       if df_temp is not None and not df_temp.empty:
@@ -433,7 +436,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
         p_analiz = donusum_noktalari_hesapla(df_t_analiz)
         p_sinyal = sinyal_kontrol(df_t_analiz)
 
-        # Sahte Sinyal ve Geçiş Kontrolleri
         is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
         gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
 
@@ -452,6 +454,14 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
         else:
           durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
 
+        telegram_toplu_mesaj += (
+            f"🔹 *{varlik}*\n"
+            f"   • Fiyat: `{p_analiz['fiyat']:.2f}`\n"
+            f"   • Durum: `{p_sinyal}`\n"
+            f"   • Geçiş Zamanı: `{gecis_tarihi}`\n"
+            f"   • Sahte Sinyal: `{'Evet ⚠️' if is_fake else 'Hayır ✅'}`\n\n"
+        )
+
         col_info, col_btn = st.columns([4, 1])
         with col_info:
           st.markdown(
@@ -468,12 +478,17 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
             st.rerun()
 
     st.divider()
+    # Manuel olarak anlık gönderme butonu da opsiyonel olarak duruyor
+    if st.button("📤 Tüm Seçili Varlıkların Özetini Telegram'a Şimdi Gönder", type="primary", use_container_width=True):
+      telegram_bildirim_gonder(telegram_toplu_mesaj)
+      st.success("Tüm varlıkların sinyal ve sahte sinyal özeti Telegram'a başarıyla gönderildi!")
+
+    st.divider()
     st.header(
         "📊 Gelişmiş Grafik İncelemesi ve İnteraktif Modlar:"
         f" `{st.session_state['secilen_aktif_grafik']}`"
     )
 
-    # Kullanıcıya Grafik Etkileşim Modu Seçeneği (Kaydırma / Zoom)
     col_mod1, col_mod2 = st.columns(2)
     with col_mod1:
       grafik_modu = st.selectbox(
@@ -612,7 +627,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           height=650 if satir_sayisi == 1 else 850,
           margin=dict(l=0, r=0, t=30, b=0),
           xaxis_rangeslider_visible=False,
-          dragmode=drag_mode_val,  # Kullanıcının seçtiği Kaydırma veya Zoom modu
+          dragmode=drag_mode_val,
           hovermode="x unified",
       )
 
@@ -636,7 +651,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
           },
       )
 
-      # --- GEÇİŞ ZAMANLARI VE SAHTE SİNYAL DETAY TABLOSU ---
       st.subheader("🕒 Geçmiş Sinyal Geçişleri ve Sahte Sinyal Analizi")
       if "sinyal_tarihsel" in df_analiz.columns:
         gecmis_sinyaller = df_analiz[df_analiz["sinyal_tarihsel"] != 0].copy()
@@ -670,7 +684,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
 elif sayfa == "⚙️ Bot Ayarları":
   st.title("⚙️ Ayarlar")
 
-  # Güncellenmiş zaman dilimi seçenekleri (30m ve 2h dahil edildi)
   zaman_secenekleri = ["15m", "30m", "1h", "2h", "4h", "1d"]
   mevcut_zaman = aktif_ayarlar.get("zaman_dilimi", "1h")
   zaman_index = (
