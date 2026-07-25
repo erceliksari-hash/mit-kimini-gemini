@@ -127,7 +127,7 @@ def otonom_islem_calistir():
     degisiklik_oldu = False
 
     # 1. Önce açık olan pozisyonları kontrol et (Stop-Loss veya Take-Profit tetiklenmiş mi?)
-    acik_pozisyonlar = list(cuzdan["pozisyonlar.keys"]()) if hasattr(cuzdan["pozisyonlar"], "keys") else list(cuzdan["pozisyonlar"].keys())
+    acik_pozisyonlar = list(cuzdan["pozisyonlar"].keys())
     
     for varlik in acik_pozisyonlar:
         df = veri_cek(varlik, aralik=zaman_dilimi)
@@ -153,7 +153,7 @@ def otonom_islem_calistir():
 
             if kapatma_nedeni:
                 satis_degeri = poz["adet"] * guncel_fiyat
-                kar_zarar = satin_degeri_fark = satis_degeri - (poz["adet"] * poz["maliyet"])
+                kar_zarar = satis_degeri - (poz["adet"] * poz["maliyet"])
                 cuzdan["nakit"] += satis_degeri
                 
                 islem_raporu += f"🔴 **[OTONOM KAPATMA - {kapatma_nedeni}]** `{varlik}` | Fiyat: `{guncel_fiyat:.2f}` | K/Z: `{kar_zarar:+.2f} $`\n"
