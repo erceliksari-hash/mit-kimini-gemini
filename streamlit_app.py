@@ -80,18 +80,72 @@ if "arkaplan_bot_aktif" not in globals():
     globals()["arkaplan_bot_aktif"] = True
     threading.Thread(target=otomatik_tarama_botu, daemon=True).start()
 
+# --- YENİ EKLENEN BACKTEST MOTORU ---
+def calistir_backtest(df):
+    """Geçmiş sinyalleri simüle ederek kâr/zarar hesaplar."""
+    sermaye = 10000  # Varsayılan başlangıç bakiyesi
+    bakiye = sermaye
+    pozisyon = 0     # 0: İşlem yok, 1: Pozisyonda
+    giris_fiyati = 0
+    islemler = []
+    
+    for index, row in df.iterrows():
+        if row['sinyal_tarihsel'] == 1 and pozisyon == 0:
+            # Alım yap
+            pozisyon = 1
+            giris_fiyati = row['close']
+            giris_tarihi = row['tarih']
+        elif row['sinyal_tarihsel'] == -1 and pozisyon == 1:
+            # Satım yap ve kâr/zarar hesapla
+            pozisyon = 0
+            cikis_fiyati = row['close']
+            cikis_tarihi = row['tarih']
+            
+            oran = (cikis_fiyati - giris_fiyati) / giris_fiyati
+            kar_zarar_tutari = bakiye * oran
+            bakiye += kar_zarar_tutari
+            
+            durum = "Başarılı ✅" if kar_zarar_tutari > 0 else "Başarısız ❌"
+            islemler.append({
+                'Giriş Tarihi': giris_tarihi,
+                'Çıkış Tarihi': cikis_tarihi,
+                'Giriş Fiyatı': round(giris_fiyati, 4),
+                'Çıkış Fiyatı': round(cikis_fiyati, 4),
+                'İşlem PnL ($)': round(kar_zarar_tutari, 2),
+                'Durum': durum
+            })
+            
+    toplam_islem = len(islemler)
+    basarili_islem = sum(1 for i in islemler if i['İşlem PnL ($)'] > 0)
+    win_rate = (basarili_islem / toplam_islem * 100) if toplam_islem > 0 else 0
+    net_kar_yuzde = ((bakiye - sermaye) / sermaye) * 100
+    
+    return {
+        "son_bakiye": bakiye, 
+        "toplam_islem": toplam_islem, 
+        "win_rate": win_rate, 
+        "net_kar_yuzde": net_kar_yuzde, 
+        "islemler": islemler
+    }
+
 # --- STREAMLIT UI ---
 aktif_ayarlar = ayarlari_yukle()
 aktif_portfoy = portfoy_yukle()
 
 st.sidebar.title("🤖 Pro Asistan")
-sayfa = st.sidebar.radio("Menü Seçimi", ["📚 Varlık Havuzu", "📈 Canlı Analiz & Sinyaller", "💼 Portföy Yönetimi", "⚙️ Bot Ayarları"])
+sayfa = st.sidebar.radio("Menü Seçimi", [
+    "📚 Varlık Havuzu", 
+    "📈 Canlı Analiz & Sinyaller", 
+    "💼 Portföy Yönetimi", 
+    "⏳ Geriye Dönük Test", 
+    "⚙️ Bot Ayarları"
+])
 st.sidebar.divider()
 
 HAZIR_VARLIKLAR = {
-    "BIST 30 Hisseleri": {"THYAO (Türk Hava Yolları)": "THYAO.IS", "ISMEN (İş Yatırım)": "ISMEN.IS", "GARAN (Garanti BBVA)": "GARAN.IS", "ASELS (Aselsan)": "ASELS.IS", "EREGL (Ereğli)": "EREGL.IS", "ASTOR (Astor)": "ASTOR.IS", "KCHOL (Koç)": "KCHOL.IS", "TUPRS (Tüpraş)": "TUPRS.IS"},
-    "Kripto Paralar": {"Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD", "Ripple": "XRP-USD", "Cardano": "ADA-USD", "Avalanche": "AVAX-USD", "Dogecoin": "DOGE-USD", "Chainlink": "LINK-USD"},
-    "Global & Emtia": {"Apple": "AAPL", "Tesla": "TSLA", "Microsoft": "MSFT", "Nvidia": "NVDA", "Altın (ONS)": "GC=F", "EUR/USD": "EURUSD=X", "USD/TRY": "USDTRY=X"}
+    "BIST 30 Hisseleri": {"THYAO (Türk Hava Yolları)": "THYAO.IS", "ISMEN (İş Yatırım)": "ISMEN.IS", "GARAN (Garanti BBVA)": "GARAN.IS", "ASELS (Aselsan)": "ASELS.IS", "EREGL (Ereğli)": "EREGL.IS"},
+    "Kripto Paralar": {"Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD", "Ripple": "XRP-USD"},
+    "Global & Emtia": {"Apple": "AAPL", "Tesla": "TSLA", "Altın (ONS)": "GC=F"}
 }
 
 if sayfa == "📚 Varlık Havuzu":
@@ -122,8 +176,6 @@ if sayfa == "📚 Varlık Havuzu":
 
 elif sayfa == "💼 Portföy Yönetimi":
     st.title("💼 Portföy Yönetimi ve Anlık Durum")
-    
-    # Yeni Varlık Ekleme Alanı
     with st.expander("➕ Portföye Yeni Varlık / İşlem Ekle", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -143,16 +195,14 @@ elif sayfa == "💼 Portföy Yönetimi":
                 st.rerun()
 
     st.divider()
-    
-    # Mevcut Portföy Analizi (Canlı Fiyatlarla)
     st.subheader("📊 Aktif Varlıklarınızın Anlık Analizi")
     if not aktif_portfoy:
         st.info("Henüz portföyünüze veri girmediniz. Yukarıdan alım yaptığınız varlıkları ekleyebilirsiniz.")
     else:
         toplam_portfoy_maliyeti = 0
         toplam_portfoy_guncel_degeri = 0
-        
         silinecekler = []
+        
         for v_kod, v_veri in aktif_portfoy.items():
             df_canli = veri_cek(v_kod, aralik="15m")
             if df_canli is not None and not df_canli.empty:
@@ -190,7 +240,6 @@ elif sayfa == "💼 Portföy Yönetimi":
             portfoy_kaydet(aktif_portfoy)
             st.rerun()
 
-        # Genel Toplamlar
         st.subheader("Genel Portföy Özeti")
         toplam_fark = toplam_portfoy_guncel_degeri - toplam_portfoy_maliyeti
         genel_renk = "normal" if toplam_fark >= 0 else "inverse"
@@ -199,6 +248,38 @@ elif sayfa == "💼 Portföy Yönetimi":
         t1.metric("Toplam Yatırım (Maliyet)", f"{toplam_portfoy_maliyeti:.2f}")
         t2.metric("Portföy Güncel Değeri", f"{toplam_portfoy_guncel_degeri:.2f}")
         t3.metric("Toplam Kâr / Zarar", f"{toplam_fark:+.2f}", delta_color=genel_renk)
+
+elif sayfa == "⏳ Geriye Dönük Test":
+    st.title("⏳ Strateji Testi (Backtest)")
+    st.markdown("Seçtiğiniz varlık ve zaman diliminde bot stratejisinin geçmiş kârlılığını test edin. **Başlangıç Bakiyesi: 10,000 $**")
+    
+    mevcut_varliklar = aktif_ayarlar.get("varliklar", ["BTC-USD"])
+    test_edilecek = st.selectbox("Test Edilecek Varlık", mevcut_varliklar)
+    
+    if st.button("🚀 Backtest'i Başlat", type="primary"):
+        with st.spinner(f"{test_edilecek} için geçmiş veriler taranıyor ve simülasyon yapılıyor..."):
+            df_test = veri_cek(test_edilecek, aralik=aktif_ayarlar["zaman_dilimi"])
+            if df_test is not None and not df_test.empty:
+                df_test_analiz = hesapla_teknikler(df_test)
+                sonuclar = calistir_backtest(df_test_analiz)
+                
+                st.divider()
+                st.subheader(f"📊 {test_edilecek} Backtest Sonuçları (Periyot: {aktif_ayarlar['zaman_dilimi']})")
+                
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Net Kâr Yüzdesi", f"%{sonuclar['net_kar_yuzde']:.2f}")
+                c2.metric("Toplam İşlem", str(sonuclar['toplam_islem']))
+                c3.metric("Başarı Oranı (Win Rate)", f"%{sonuclar['win_rate']:.1f}")
+                c4.metric("Son Bakiye", f"{sonuclar['son_bakiye']:.2f} $")
+                
+                if sonuclar['islemler']:
+                    st.markdown("### 📝 İşlem Geçmişi (Log)")
+                    df_islemler = pd.DataFrame(sonuclar['islemler'])
+                    st.dataframe(df_islemler, use_container_width=True)
+                else:
+                    st.warning("Bu periyotta stratejiye uygun herhangi bir Al/Sat kesişimi bulunamadı.")
+            else:
+                st.error("Veri çekilemedi. Lütfen daha sonra tekrar deneyin.")
 
 elif sayfa == "📈 Canlı Analiz & Sinyaller":
     st.title("📈 Portföy Sinyal Listesi ve Gelişmiş Grafik")
@@ -218,8 +299,8 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 p_analiz = donusum_noktalari_hesapla(df_t_analiz)
                 p_sinyal = sinyal_kontrol(df_t_analiz)
                 
-                if "AL" in p_sinyal.upper() or "UP" in p_sinyal.upper(): durum_metni = "🚀 **YÜKSELİŞTE (LONG Sinyali)**"
-                elif "SAT" in p_sinyal.upper() or "DOWN" in p_sinyal.upper(): durum_metni = "⚠️ **DÜŞÜŞTE (SHORT Sinyali)**"
+                if "AL" in p_sinyal.upper(): durum_metni = "🚀 **YÜKSELİŞTE (LONG)**"
+                elif "SAT" in p_sinyal.upper(): durum_metni = "⚠️ **DÜŞÜŞTE (SHORT)**"
                 else: durum_metni = "⚖️ **NÖTR / Yatay Seyir**"
                 
                 col_info, col_btn = st.columns([4, 1])
@@ -229,8 +310,6 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                     if st.button(f"📊 Grafiği İncele", key=f"btn_list_{varlik}", use_container_width=True):
                         st.session_state["secilen_aktif_grafik"] = varlik
                         st.rerun()
-            else:
-                st.warning(f"🔹 {varlik}: Veri alınamadı.")
 
         st.divider()
         st.header(f"📊 Gelişmiş Grafik İncelemesi: `{st.session_state['secilen_aktif_grafik']}`")
@@ -258,10 +337,7 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 
             fig = make_subplots(rows=satir_sayisi, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=row_heights)
 
-            # Mum Grafik
             fig.add_trace(go.Candlestick(x=df_analiz['tarih'], open=df_analiz['open'], high=df_analiz['high'], low=df_analiz['low'], close=df_analiz['close'], name='Fiyat'), row=1, col=1)
-            
-            # Destek & Direnç
             fig.add_hline(y=analiz['destek'], line_dash="dot", line_color="green", annotation_text="Destek", row=1, col=1)
             fig.add_hline(y=analiz['direnc'], line_dash="dot", line_color="red", annotation_text="Direnç", row=1, col=1)
 
@@ -277,25 +353,19 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
             if "MACD (Alt Grafik)" in ek_gostergeler:
                 fig.add_trace(go.Scatter(x=df_analiz['tarih'], y=df_analiz['macd'], name='MACD', line=dict(color='blue')), row=guncel_satir, col=1)
 
-            # Grafik Arayüzü Geliştirmeleri (Zoom, Çizim, Crosshair)
             fig.update_layout(
                 template="plotly_dark", 
                 height=650 if satir_sayisi == 1 else 850, 
                 margin=dict(l=0, r=0, t=30, b=0), 
                 xaxis_rangeslider_visible=False,
-                dragmode='zoom', # Varsayılan olarak zoom açık
-                hovermode='x unified' # Aynı dikey çizgideki tüm değerleri gösterir
+                dragmode='zoom', 
+                hovermode='x unified'
             )
             
-            # config ile Streamlit üzerinde ekstra butonları aktifleştirme
             st.plotly_chart(
                 fig, 
                 use_container_width=True, 
-                config={
-                    'scrollZoom': True, # Fare tekerleği ile zoom
-                    'displayModeBar': True,
-                    'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape'] # Çizim araçları
-                }
+                config={'scrollZoom': True, 'displayModeBar': True, 'modeBarButtonsToAdd': ['drawline', 'drawopenpath', 'eraseshape']}
             )
 
 elif sayfa == "⚙️ Bot Ayarları":
