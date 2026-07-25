@@ -30,7 +30,7 @@ PORTFOY_DOSYASI = "portfoy_arsiv.json"
 SANAL_CUZDAN_DOSYASI = "sanal_cuzdan_arsiv.json"
 
 VARSAYILAN_AYARLAR = {
-    "varliklar": ["AAPL", "BTC-USD", "ETH-USD", "SPY", "THYAO.IS"],
+    "varliklar": ["BTC-USD", "ETH-USD", "SOL-USD", "AAPL", "THYAO.IS"],
     "zaman_dilimi": "1h",
     "bot_sikligi_dk": 60,
 }
@@ -38,7 +38,7 @@ VARSAYILAN_AYARLAR = {
 VARSAYILAN_SANAL_CUZDAN = {
     "nakit": 10000.0,
     "baslangic_nakit": 10000.0,
-    "pozisyonlar": {},  # {varlik: {"adet": x, "maliyet": y, "tarih": z}}
+    "pozisyonlar": {},  # {varlik: {"adet": x, "maliyet": y, "stop_loss": sl, "take_profit": tp, "tarih": z}}
     "gecmis_islemler": []
 }
 
@@ -116,7 +116,7 @@ def internette_varlik_ara(sorgu):
         return []
 
 
-# --- OTONOM SANAL CÜZDAN AL-SAT MOTORU ---
+# --- OTONOM SANAL CÜZDAN AL-SAT MOTORU (1:2 R/R - %1.5 SL / %3.0 TP) ---
 def otonom_islem_calistir():
     cuzdan = sanal_cuzdan_yukle()
     ayarlar = ayarlari_yukle()
@@ -126,47 +126,39 @@ def otonom_islem_calistir():
     islem_raporu = ""
     degisiklik_oldu = False
 
-    for varlik in varliklar:
+    # 1. Önce açık olan pozisyonları kontrol et (Stop-Loss veya Take-Profit tetiklenmiş mi?)
+    acik_pozisyonlar = list(cuzdan["pozisyonlar.keys"]()) if hasattr(cuzdan["pozisyonlar"], "keys") else list(cuzdan["pozisyonlar"].keys())
+    
+    for varlik in acik_pozisyonlar:
         df = veri_cek(varlik, aralik=zaman_dilimi)
         if df is not None and not df.empty:
-            df_analiz = hesapla_teknikler(df)
-            p_sinyal = sinyal_kontrol(df_analiz)
-            guncel_fiyat = df_analiz["close"].iloc[-1]
-            tarih_str = str(df_analiz["tarih"].iloc[-1])
-
-            sinyal_ust = p_sinyal.upper()
+            guncel_fiyat = df["close"].iloc[-1]
+            tarih_str = str(df["tarih"].iloc[-1])
+            poz = cuzdan["pozisyonlar"][varlik]
             
-            # AL SİNYALİ VE NAKİT VARSA
-            if ("AL" in sinyal_ust or "YÜKSELİŞ" in sinyal_ust) and varlik not in cuzdan["pozisyonlar"]:
-                harcanacak_nakit = cuzdan["nakit"] * 0.25  # Her işlemde nakdin %25'i
-                if harcanacak_nakit > 10:
-                    adet = harcanacak_nakit / guncel_fiyat
-                    cuzdan["nakit"] -= harcanacak_nakit
-                    cuzdan["pozisyonlar"][varlik] = {
-                        "adet": adet,
-                        "maliyet": guncel_fiyat,
-                        "tarih": tarih_str
-                    }
-                    islem_raporu += f"🟢 **[OTONOM AL]** `{varlik}` | Fiyat: `{guncel_fiyat:.2f}` | Tutar: `{harcanacak_nakit:.2f} $`\n"
-                    cuzdan["gecmis_islemler"].append({
-                        "islem": "AL",
-                        "varlik": varlik,
-                        "fiyat": guncel_fiyat,
-                        "tarih": tarih_str,
-                        "tutar": harcanacak_nakit
-                    })
-                    degisiklik_oldu = True
+            sl = poz["stop_loss"]
+            tp = poz["take_profit"]
+            
+            kapatma_nedeni = None
+            if guncel_fiyat <= sl:
+                kapatma_nedeni = "STOP-LOSS (%1.5 Zarar Kes)"
+            elif guncel_fiyat >= tp:
+                kapatma_nedeni = "TAKE-PROFIT (%3.0 Kâr Al)"
+            else:
+                # Teknik sinyal tersine döndüyse de kapat
+                df_analiz = hesapla_teknikler(df)
+                p_sinyal = sinyal_kontrol(df_analiz)
+                if "SAT" in p_sinyal.upper() or "DÜŞÜŞ" in p_sinyal.upper():
+                    kapatma_nedeni = "TEKNİK SAT SİNYALİ"
 
-            # SAT SİNYALİ VE POZİSYON VARSA
-            elif ("SAT" in sinyal_ust or "DÜŞÜŞ" in sinyal_ust) and varlik in cuzdan["pozisyonlar"]:
-                poz = cuzdan["pozisyonlar"][varlik]
+            if kapatma_nedeni:
                 satis_degeri = poz["adet"] * guncel_fiyat
-                kar_zarar = satis_degeri - (poz["adet"] * poz["maliyet"])
+                kar_zarar = satin_degeri_fark = satis_degeri - (poz["adet"] * poz["maliyet"])
                 cuzdan["nakit"] += satis_degeri
                 
-                islem_raporu += f"🔴 **[OTONOM SAT]** `{varlik}` | Fiyat: `{guncel_fiyat:.2f}` | K/Z: `{kar_zarar:+.2f} $`\n"
+                islem_raporu += f"🔴 **[OTONOM KAPATMA - {kapatma_nedeni}]** `{varlik}` | Fiyat: `{guncel_fiyat:.2f}` | K/Z: `{kar_zarar:+.2f} $`\n"
                 cuzdan["gecmis_islemler"].append({
-                    "islem": "SAT",
+                    "islem": f"KAPAT ({kapatma_nedeni})",
                     "varlik": varlik,
                     "fiyat": guncel_fiyat,
                     "tarih": tarih_str,
@@ -175,6 +167,44 @@ def otonom_islem_calistir():
                 })
                 del cuzdan["pozisyonlar"][varlik]
                 degisiklik_oldu = True
+
+    # 2. Yeni alım fırsatlarını tara
+    for varlik in varliklar:
+        if varlik in cuzdan["pozisyonlar"]:
+            continue  # Zaten açık pozisyon varsa yeni açma
+            
+        df = veri_cek(varlik, aralik=zaman_dilimi)
+        if df is not None and not df.empty:
+            df_analiz = hesapla_teknikler(df)
+            p_sinyal = sinyal_kontrol(df_analiz)
+            guncel_fiyat = df_analiz["close"].iloc[-1]
+            tarih_str = str(df_analiz["tarih"].iloc[-1])
+            sinyal_ust = p_sinyal.upper()
+            
+            if "AL" in sinyal_ust or "YÜKSELİŞ" in sinyal_ust:
+                harcanacak_nakit = cuzdan["nakit"] * 0.25  # Nakdin %25'i ile işlem
+                if harcanacak_nakit > 10:
+                    adet = harcanacak_nakit / guncel_fiyat
+                    sl_deger = guncel_fiyat * 0.985  # %1.5 Stop-Loss
+                    tp_deger = guncel_fiyat * 1.030  # %3.0 Take-Profit
+                    
+                    cuzdan["nakit"] -= harcanacak_nakit
+                    cuzdan["pozisyonlar"][varlik] = {
+                        "adet": adet,
+                        "maliyet": guncel_fiyat,
+                        "stop_loss": sl_deger,
+                        "take_profit": tp_deger,
+                        "tarih": tarih_str
+                    }
+                    islem_raporu += f"🟢 **[OTONOM AL]** `{varlik}` | Fiyat: `{guncel_fiyat:.2f}` | SL: `{sl_deger:.2f}` | TP: `{tp_deger:.2f}`\n"
+                    cuzdan["gecmis_islemler"].append({
+                        "islem": "AL",
+                        "varlik": varlik,
+                        "fiyat": guncel_fiyat,
+                        "tarih": tarih_str,
+                        "tutar": harcanacak_nakit
+                    })
+                    degisiklik_oldu = True
 
     if degisiklik_oldu:
         sanal_cuzdan_kaydet(cuzdan)
@@ -196,8 +226,8 @@ def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
     r2 = r1_val * 1.015
     r3 = r1_val * 1.030
 
-    stop_loss = s1 if s1 < fiyat else fiyat * 0.97
-    take_profit = r1_val if r1_val > fiyat else fiyat * 1.05
+    stop_loss = s1 if s1 < fiyat else fiyat * 0.985
+    take_profit = r1_val if r1_val > fiyat else fiyat * 1.030
 
     is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
     gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
@@ -214,7 +244,7 @@ def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
         gecis_yorum = f"Kırılım Seviyeleri: `{r1_val:.2f}` Üstü Yükseliş | `{s1:.2f}` Altı Düşüş"
 
     if is_fake:
-        sahte_yorum = "⚠️ *SİNYAL UYARISI:* Sahte/Tuzak sinyal tespit edildi! Hacim veya yardımcı indikatör doğrulaması zayıf."
+        sahte_yorum = "⚠️ *SİNYAL UYARISI:* Sahte/Tuzak sinyal tespit edildi!"
     else:
         sahte_yorum = "✅ *GÜVENİLİR SİNYAL:* İndikatör ve hacim teyidi mevcut."
 
@@ -224,8 +254,7 @@ def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
         f"   • *Geçiş Zamanı:* `{gecis_tarihi}`\n"
         f"   • *Destekler:* S1: `{s1:.2f}` | S2: `{s2:.2f}` | S3: `{s3:.2f}`\n"
         f"   • *Dirençler:* R1: `{r1_val:.2f}` | R2: `{r2:.2f}` | R3: `{r3:.2f}`\n"
-        f"   • *Stop-Loss (SL):* `{stop_loss:.2f}` | *Take-Profit (TP):* `{take_profit:.2f}`\n"
-        f"   • *Geçiş Seviyesi Yorumu:* {gecis_yorum}\n"
+        f"   • *Strateji (1:2 R/R):* SL: `{stop_loss:.2f}` (%1.5) | TP: `{take_profit:.2f}` (%3.0)\n"
         f"   • *Teknik Değerlendirme:* {trend_yorum}\n"
         f"   • *Sinyal Kalitesi:* {sahte_yorum}\n\n"
     )
@@ -257,14 +286,13 @@ def otomatik_tarama_botu():
             zaman_dilimi = ayarlar.get("zaman_dilimi", "1h")
             bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
 
-            # Otonom işlem turunu çalıştır
             otonom_rapor, cuzdan_sonuc = otonom_islem_calistir()
 
             if varliklar:
-                telegram_toplu_mesaj = f"📊 *Otomatik Analiz ve Otonom Cüzdan Raporu* (Periyot: {zaman_dilimi})\n\n"
+                telegram_toplu_mesaj = f"📊 *Otomatik Analiz ve Otonom Cüzdan Raporu (1:2 R/R)*\n\n"
                 
                 if otonom_rapor:
-                    telegram_toplu_mesaj += f"🤖 *Otonom Al-Sat Hareketleri:*\n{otonom_rapor}\n-------------------\n"
+                    telegram_toplu_mesaj += f"🤖 *Otonom Al-Sat / SL-TP Hareketleri:*\n{otonom_rapor}\n-------------------\n"
 
                 for varlik in varliklar:
                     df_t = veri_cek(varlik, aralik=zaman_dilimi)
@@ -356,159 +384,44 @@ st.sidebar.divider()
 HAZIR_VARLIKLAR = {
     "BIST 100 Kapsamlı Liste": {
         "AKBNK (Akbank)": "AKBNK.IS",
-        "ALARK (Alarko Holding)": "ALARK.IS",
-        "ARCLK (Arçelik)": "ARCLK.IS",
-        "ASELS (Aselsan)": "ASELS.IS",
-        "BIMAS (BİM Mağazalar)": "BIMAS.IS",
-        "ENKAI (Enka İnşaat)": "ENKAI.IS",
-        "EREGL (Ereğli Demir Çelik)": "EREGL.IS",
-        "FROTO (Ford Otosan)": "FROTO.IS",
         "GARAN (Garanti BBVA)": "GARAN.IS",
-        "GUBRF (Gübre Fabrikaları)": "GUBRF.IS",
-        "HALKB (Halkbank)": "HALKB.IS",
-        "HEKTS (Hektaş)": "HEKTS.IS",
-        "ISMEN (İş Yatırım)": "ISMEN.IS",
         "KCHOL (Koç Holding)": "KCHOL.IS",
-        "KOZAL (Koza Altın)": "KOZAL.IS",
-        "KRDMD (Kardemir D)": "KRDMD.IS",
-        "MGROS (Migros Ticaret)": "MGROS.IS",
-        "ODAS (Odaş Elektrik)": "ODAS.IS",
-        "OYAKC (Oyak Çimento)": "OYAKC.IS",
-        "PETKM (Petkim)": "PETKM.IS",
-        "PGSUS (Pegasus)": "PGSUS.IS",
         "SAHOL (Sabancı Holding)": "SAHOL.IS",
         "SASA (Sasa Polyester)": "SASA.IS",
-        "SOKM (Şok Marketler)": "SOKM.IS",
-        "TCELL (Turkcell)": "TCELL.IS",
         "THYAO (Türk Hava Yolları)": "THYAO.IS",
-        "TKFEN (Tekfen Holding)": "TKFEN.IS",
-        "TOASO (Tofaş)": "TOASO.IS",
-        "TSKB (T.S.K.B.)": "TSKB.IS",
-        "TTKOM (Türk Telekom)": "TTKOM.IS",
         "TUPRS (Tüpraş)": "TUPRS.IS",
-        "VAKBN (VakıfBank)": "VAKBN.IS",
-        "VESTL (Vestel)": "VESTL.IS",
         "YKBNK (Yapı Kredi)": "YKBNK.IS",
-        "ZOREN (Zorlu Enerji)": "ZOREN.IS",
     },
     "Kripto (İlk 50 / Popüler)": {
-        "Aave (AAVE)": "AAVE-USD",
-        "Algorand (ALGO)": "ALGO-USD",
-        "Aptos (APT)": "APT-USD",
         "Arbitrum (ARB)": "ARB-USD",
         "Avalanche (AVAX)": "AVAX-USD",
-        "Axie Infinity (AXS)": "AXS-USD",
         "Bitcoin (BTC)": "BTC-USD",
-        "Bonk (BONK)": "BONK-USD",
         "Cardano (ADA)": "ADA-USD",
-        "Celestia (TIA)": "TIA-USD",
         "Chainlink (LINK)": "LINK-USD",
-        "Cosmos (ATOM)": "ATOM-USD",
-        "Decentraland (MANA)": "MANA-USD",
         "Dogecoin (DOGE)": "DOGE-USD",
         "Ethereum (ETH)": "ETH-USD",
-        "Ethereum Classic (ETC)": "ETC-USD",
-        "Fantom (FTM)": "FTM-USD",
-        "Fetch.ai (FET)": "FET-USD",
-        "Filecoin (FIL)": "FIL-USD",
-        "Floki (FLOKI)": "FLOKI-USD",
-        "Hedera (HBAR)": "HBAR-USD",
-        "Immutable (IMX)": "IMX-USD",
-        "Injective (INJ)": "INJ-USD",
-        "Internet Computer (ICP)": "ICP-USD",
-        "Kaspa (KAS)": "KAS-USD",
-        "Litecoin (LTC)": "LTC-USD",
-        "Maker (MKR)": "MKR-USD",
         "Near Protocol (NEAR)": "NEAR-USD",
-        "Optimism (OP)": "OP-USD",
-        "Pepe (PEPE)": "PEPE-USD",
-        "Polkadot (DOT)": "DOT-USD",
         "Polygon (MATIC / POL)": "MATIC-USD",
-        "Render (RNDR)": "RNDR-USD",
         "Ripple (XRP)": "XRP-USD",
-        "Sei (SEI)": "SEI-USD",
-        "Shiba Inu (SHIB)": "SHIB-USD",
         "Solana (SOL)": "SOL-USD",
-        "Stacks (STX)": "STX-USD",
-        "Stellar (XLM)": "XLM-USD",
         "Sui (SUI)": "SUI-USD",
-        "The Graph (GRT)": "GRT-USD",
-        "The Sandbox (SAND)": "SAND-USD",
-        "Theta Network (THETA)": "THETA-USD",
-        "Uniswap (UNI)": "UNI-USD",
-        "VeChain (VET)": "VET-USD",
     },
-    "Küresel Emtialar ve Fonlar": {
+    "Küresel Emtialar ve Forex": {
         "Altın (Gold Ons)": "GC=F",
         "Brent Petrol": "BZ=F",
-        "Doğalgaz (Natural Gas)": "NG=F",
         "Gümüş (Silver Ons)": "SI=F",
-        "Ham Petrol (Crude Oil)": "CL=F",
-        "Invesco QQQ (Nasdaq 100 ETF)": "QQQ",
-        "iShares Gold Trust (GLD)": "GLD",
-        "iShares Silver Trust (SLV)": "SLV",
-        "Vanguard S&P 500 ETF (VOO)": "VOO",
-        "Vanguard Total Stock Market (VTI)": "VTI",
+        "EUR/USD": "EURUSD=X",
+        "GBP/USD": "GBPUSD=X",
+        "USD/JPY": "USDJPY=X",
     },
-    "NASDAQ Liderleri": {
-        "Adobe (ADBE)": "ADBE",
-        "Advanced Micro Devices (AMD)": "AMD",
-        "Alphabet / Google (GOOGL)": "GOOGL",
-        "Amazon (AMZN)": "AMZN",
-        "Amgen (AMGN)": "AMGN",
+    "NASDAQ & S&P 500 Liderleri": {
         "Apple (AAPL)": "AAPL",
-        "Automatic Data Processing (ADP)": "ADP",
-        "Booking Holdings (BKNG)": "BKNG",
-        "Broadcom (AVGO)": "AVGO",
-        "Cisco Systems (CSCO)": "CSCO",
-        "Costco (COST)": "COST",
-        "Gilead Sciences (GILD)": "GILD",
-        "Intel (INTC)": "INTC",
-        "Intuitive Surgical (ISRG)": "ISRG",
-        "Lam Research (LRCX)": "LRCX",
-        "Meta Platforms (META)": "META",
-        "Micron Technology (MU)": "MU",
         "Microsoft (MSFT)": "MSFT",
-        "Mondelez (MDLZ)": "MDLZ",
-        "Netflix (NFLX)": "NFLX",
-        "NVIDIA (NVDA)": "NVIDIA",
-        "Palo Alto Networks (PANW)": "PANW",
-        "PayPal (PYPL)": "PYPL",
-        "PepsiCo (PEP)": "PEP",
-        "Qualcomm (QCOM)": "QCOM",
-        "Starbucks (SBUX)": "SBUX",
-        "Synopsys (SNPS)": "SNPS",
-        "T-Mobile (TMUS)": "TMUS",
+        "NVIDIA (NVDA)": "NVDA",
         "Tesla (TSLA)": "TSLA",
-        "Texas Instruments (TXN)": "TXN",
-    },
-    "S&P 500 Liderleri": {
-        "Abbott Laboratories (ABBT / ABT)": "ABT",
-        "AbbVie (ABBV)": "ABBV",
-        "Accenture (ACN)": "ACN",
-        "Bank of America (BAC)": "BAC",
-        "Berkshire Hathaway (BRK-B)": "BRK-B",
-        "Chevron (CVX)": "CVX",
-        "Coca-Cola (KO)": "KO",
-        "Danaher (DHR)": "DHR",
-        "Exxon Mobil (XOM)": "XOM",
-        "Home Depot (HD)": "HD",
-        "Johnson & Johnson (JNJ)": "JNJ",
-        "JPMorgan Chase (JPM)": "JPM",
-        "Mastercard (MA)": "MA",
-        "McDonald's (MCD)": "MCD",
-        "Merck & Co (MRK)": "MRK",
-        "Nike (NKE)": "NKE",
-        "Pfizer (PFE)": "PFE",
-        "Philip Morris (PM)": "PM",
-        "Procter & Gamble (PG)": "PG",
+        "Amazon (AMZN)": "AMZN",
+        "Meta Platforms (META)": "META",
         "S&P 500 ETF (SPY)": "SPY",
-        "Thermo Fisher Scientific (TMO)": "TMO",
-        "UnitedHealth (UNH)": "UNH",
-        "Visa (V)": "V",
-        "Walmart (WMT)": "WMT",
-        "Walt Disney (DIS)": "DIS",
-        "Wells Fargo (WFC)": "WFC",
     },
 }
 
@@ -517,7 +430,7 @@ if sayfa == "📚 Varlık Havuzu":
     secilenler = set(aktif_ayarlar["varliklar"])
 
     st.subheader("📋 Aktif Varlık Listesi ve Yönetimi (Silme İşlemi)")
-    st.markdown("Şu an sabit olarak takip edilen varlıklarınız aşağıdadır. İstemediğiniz bir varlığı yanındaki **❌ Çıkar** butonuna basarak anında listeden silebilirsiniz.")
+    st.markdown("Takip edilen varlıklarınız aşağıdadır. İstemediğiniz bir varlığı **❌ Çıkar** butonuna basarak silebilirsiniz.")
     
     if not secilenler:
         st.info("Aktif listenizde hiç varlık bulunmuyor.")
@@ -536,25 +449,23 @@ if sayfa == "📚 Varlık Havuzu":
                 secilenler.discard(s_kod)
             aktif_ayarlar["varliklar"] = sorted(list(secilenler))
             ayarlari_kaydet(aktif_ayarlar)
-            st.success("Seçilen varlık listeden başarıyla çıkarıldı ve sabitlendi!")
+            st.success("Seçilen varlık listeden çıkarıldı!")
             time.sleep(0.5)
             st.rerun()
 
     st.divider()
 
-    tab_bist, tab_kripto, tab_emtia, tab_nasdaq, tab_sp500, tab_ozel = st.tabs([
-        "🇹🇷 BIST 100",
-        "🪙 Kripto (İlk 50)",
-        "🛢️ Fonlar & Emtialar",
-        "💻 NASDAQ",
-        "📈 S&P 500",
+    tab_bist, tab_kripto, tab_emtia, tab_abd, tab_ozel = st.tabs([
+        "🇹🇷 BIST",
+        "🪙 Kripto",
+        "🛢️ Emtia & Forex",
+        "📈 ABD Liderleri",
         "⭐ Özel Varlıklar",
     ])
 
     kategoriler_listesi = list(HAZIR_VARLIKLAR.keys())
 
     with tab_bist:
-        st.subheader("BIST 100 Kapsamlı Seçkisi")
         for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[0]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hb_{kod}"):
                 secilenler.add(kod)
@@ -562,7 +473,6 @@ if sayfa == "📚 Varlık Havuzu":
                 secilenler.discard(kod)
 
     with tab_kripto:
-        st.subheader("Kripto Para Piyasası (İlk 50 / Popüler)")
         for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[1]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hk_{kod}"):
                 secilenler.add(kod)
@@ -570,36 +480,24 @@ if sayfa == "📚 Varlık Havuzu":
                 secilenler.discard(kod)
 
     with tab_emtia:
-        st.subheader("Küresel Emtialar ve Fonlar / ETF'ler")
         for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[2]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hef_{kod}"):
                 secilenler.add(kod)
             else:
                 secilenler.discard(kod)
 
-    with tab_nasdaq:
-        st.subheader("NASDAQ Teknoloji Liderleri")
+    with tab_abd:
         for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[3]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hn_{kod}"):
                 secilenler.add(kod)
             else:
                 secilenler.discard(kod)
 
-    with tab_sp500:
-        st.subheader("S&P 500 Liderleri ve ETF")
-        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[4]].items():
-            if st.checkbox(isim, value=(kod in secilenler), key=f"hs_{kod}"):
-                secilenler.add(kod)
-            else:
-                secilenler.discard(kod)
-
     with tab_ozel:
-        st.subheader("⭐ Özel Olarak Eklediğiniz Varlıklar")
         tum_hazir_kodlar = {kod for kat in HAZIR_VARLIKLAR.values() for kod in kat.values()}
         ozel_kodlar = sorted([k for k in secilenler if k not in tum_hazir_kodlar])
-        
         if not ozel_kodlar:
-            st.info("Henüz özel olarak eklenmiş ek bir varlık bulunmuyor.")
+            st.info("Özel eklenmiş varlık bulunmuyor.")
         else:
             for kod in ozel_kodlar:
                 if st.checkbox(f"Özel Varlık: {kod}", value=(kod in secilenler), key=f"ozel_{kod}"):
@@ -626,7 +524,7 @@ if sayfa == "📚 Varlık Havuzu":
             secilenler.add(secilen_kod)
             aktif_ayarlar["varliklar"] = sorted(list(secilenler))
             ayarlari_kaydet(aktif_ayarlar)
-            st.success(f"{secilen_kod} başarıyla eklendi!")
+            st.success(f"{secilen_kod} eklendi!")
             st.session_state["arama_sonuclari"] = []
             time.sleep(0.5)
             st.rerun()
@@ -663,14 +561,13 @@ elif sayfa == "⚙️ Bot Ayarları":
         st.rerun()
 
 elif sayfa == "🤖 Otonom Sanal Cüzdan":
-    st.title("🤖 Otonom Sanal Cüzdan (Paper Trading Simülasyonu)")
-    st.markdown("Sistem, aktif varlık listendeki coin/hisse senetlerini analiz ederek **yükselişlerde (AL)** sanal bütçeyle alım yapar, **düşüşlerde (SAT)** pozisyon kapatarak kâr/zarar hesabı tutar. Bu süreç arka planda Telegram'a da raporlanır.")
+    st.title("🤖 Otonom Sanal Cüzdan (1:2 Risk/Reward Stratejisi)")
+    st.markdown("Bot; **%1.5 Stop-Loss** ve **%3.0 Take-Profit** kurallarıyla otomatik alım-satım yapar, riskleri minimize ederken kazançları büyütür.")
 
     cuzdan_data = sanal_cuzdan_yukle()
 
     col_b1, col_b2, col_b3 = st.columns(3)
     
-    # Anlık değer hesaplama
     toplam_pozisyon_degeri = 0
     for v_kod, poz in cuzdan_data["pozisyonlar"].items():
         df_c = veri_cek(v_kod, aralik=aktif_ayarlar["zaman_dilimi"])
@@ -682,7 +579,7 @@ elif sayfa == "🤖 Otonom Sanal Cüzdan":
     net_kazanc = toplam_servet - cuzdan_data["baslangic_nakit"]
     net_kazanc_yuzde = (net_kazanc / cuzdan_data["baslangic_nakit"]) * 100
 
-    col_b1.metric("Toplam Varlık (Servet)", f"{toplam_servet:.2f} $", f"%{net_kazanc_yuzde:+.2f}")
+    col_b1.metric("Toplam Servet", f"{toplam_servet:.2f} $", f"%{net_kazanc_yuzde:+.2f}")
     col_b2.metric("Nakit Bakiye", f"{cuzdan_data['nakit']:.2f} $")
     col_b3.metric("Açık Pozisyon Değeri", f"{toplam_pozisyon_degeri:.2f} $")
 
@@ -690,13 +587,13 @@ elif sayfa == "🤖 Otonom Sanal Cüzdan":
     col_islem1, col_islem2 = st.columns([2, 2])
     with col_islem1:
         if st.button("🔄 Otonom Turu Şimdi Çalıştır (Manuel Test)", type="primary", use_container_width=True):
-            with st.spinner("Piyasa taranıyor ve otonom al-sat kararları uygulanıyor..."):
+            with st.spinner("Piyasa taranıyor, SL/TP kontrolü yapılıyor..."):
                 rapor, yeni_cuzdan = otonom_islem_calistir()
                 if rapor:
                     st.success("Otonom işlemler gerçekleştirildi!")
                     st.markdown(rapor)
                 else:
-                    st.info("Mevcut sinyallere göre yeni bir işlem tetiklenmedi (Koşullar sağlanmadı).")
+                    st.info("Mevcut barda yeni işlem veya SL/TP tetiklemesi olmadı.")
                 time.sleep(1)
                 st.rerun()
     with col_islem2:
@@ -706,28 +603,29 @@ elif sayfa == "🤖 Otonom Sanal Cüzdan":
             time.sleep(1)
             st.rerun()
 
-    st.subheader("📂 Açık Sanal Pozisyonlar")
+    st.subheader("📂 Açık Sanal Pozisyonlar (SL / TP Takibi)")
     if not cuzdan_data["pozisyonlar"]:
-        st.info("Şu an açık olan herhangi bir sanal pozisyon bulunmuyor. Sinyaller olumluya döndüğünde bot otomatik alım yapacaktır.")
+        st.info("Şu an açık pozisyon bulunmuyor.")
     else:
         for v_kod, poz in cuzdan_data["pozisyonlar"].items():
             df_curr = veri_cek(v_kod, aralik=aktif_ayarlar["zaman_dilimi"])
             curr_fiyat = df_curr["close"].iloc[-1] if df_curr is not None and not df_curr.empty else poz["maliyet"]
             deger = poz["adet"] * curr_fiyat
             maliyet_tutar = poz["adet"] * poz["maliyet"]
-            kar_ zarar = deger - maliyet_tutar
+            kar_zarar = deger - maliyet_tutar
             kar_zarar_yuzde = ((curr_fiyat - poz["maliyet"]) / poz["maliyet"]) * 100
             
             c_renk = "green" if kar_zarar >= 0 else "red"
             
             st.markdown(f"**Varlık:** `{v_kod}` | **Alış Tarihi:** `{poz['tarih']}`")
-            st.markdown(f"• Alış Maliyeti: `{poz['maliyet']:.2f}` | Anlık Fiyat: `{curr_fiyat:.2f}` | Lot: `{poz['adet']:.4f}`")
-            st.markdown(f"• Anlık Değer: `{deger:.2f} $` | K/Z: <span style='color:{c_renk}; font-weight:bold;'>{kar_zarar:+.2f} $ (%{kar_zarar_yuzde:+.2f})</span>", unsafe_allow_html=True)
+            st.markdown(f"• Maliyet: `{poz['maliyet']:.2f}` | Anlık: `{curr_fiyat:.2f}` | Lot: `{poz['adet']:.4f}`")
+            st.markdown(f"• **Stop-Loss:** `{poz['stop_loss']:.2f}` | **Take-Profit:** `{poz['take_profit']:.2f}`")
+            st.markdown(f"• Değer: `{deger:.2f} $` | K/Z: <span style='color:{c_renk}; font-weight:bold;'>{kar_zarar:+.2f} $ (%{kar_zarar_yuzde:+.2f})</span>", unsafe_allow_html=True)
             st.divider()
 
     st.subheader("📜 Otonom İşlem Geçmişi (Log)")
     if not cuzdan_data["gecmis_islemler"]:
-        st.info("Henüz geçmiş işlem kaydı yok.")
+        st.info("Geçmiş işlem kaydı yok.")
     else:
         df_gecmis = pd.DataFrame(cuzdan_data["gecmis_islemler"])
         st.dataframe(df_gecmis, use_container_width=True)
@@ -767,7 +665,7 @@ elif sayfa == "💼 Portföy Yönetimi":
     st.divider()
     st.subheader("📊 Portföy Canlı Durumu")
     if not aktif_portfoy:
-        st.info("Henüz portföyünüze veri eklemediniz.")
+        st.info("Portföyünüze veri eklemediniz.")
     else:
         toplam_portfoy_maliyeti = 0
         toplam_portfoy_guncel_degeri = 0
@@ -830,20 +728,20 @@ elif sayfa == "💼 Portföy Yönetimi":
 
 elif sayfa == "⏳ Geriye Dönük Test":
     st.title("⏳ Strateji Testi (Backtest)")
-    st.markdown("Seçtiğiniz varlık ve zaman diliminde bot stratejisinin geçmiş kârlılığını test edin. **Başlangıç Bakiyesi: 10,000 $**")
+    st.markdown("Seçtiğiniz varlık ve zaman diliminde bot stratejisinin geçmiş kârlılığını test edin.")
 
     mevcut_varliklar = sorted(aktif_ayarlar.get("varliklar", ["BTC-USD"]))
     test_edilecek = st.selectbox("Test Edilecek Varlık", mevcut_varliklar)
 
     if st.button("🚀 Backtest'i Başlat", type="primary"):
-        with st.spinner("Geçmiş veriler taranıyor ve simülasyon yapılıyor..."):
+        with st.spinner("Geçmiş veriler taranıyor..."):
             df_test = veri_cek(test_edilecek, aralik=aktif_ayarlar["zaman_dilimi"])
             if df_test is not None and not df_test.empty:
                 df_test_analiz = hesapla_teknikler(df_test)
                 sonuclar = calistir_backtest(df_test_analiz)
 
                 st.divider()
-                st.subheader(f"📊 {test_edilecek} Backtest Sonuçları (Periyot: {aktif_ayarlar['zaman_dilimi']})")
+                st.subheader(f"📊 {test_edilecek} Backtest Sonuçları")
 
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Net Kâr Yüzdesi", f"%{sonuclar['net_kar_yuzde']:.2f}")
@@ -856,7 +754,7 @@ elif sayfa == "⏳ Geriye Dönük Test":
                     df_islemler = pd.DataFrame(sonuclar["islemler"])
                     st.dataframe(df_islemler, use_container_width=True)
                 else:
-                    st.warning("Bu periyotta stratejiye uygun işlem bulunamadı.")
+                    st.warning("Bu periyotta işlem bulunamadı.")
             else:
                 st.error("Veri çekilemedi.")
 
@@ -865,14 +763,14 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
     mevcut_varliklar = sorted(aktif_ayarlar.get("varliklar", []))
 
     if not mevcut_varliklar:
-        st.warning("Lütfen Varlık Havuzundan varlık seçin ve sabitleyin.")
+        st.warning("Lütfen Varlık Havuzundan varlık seçin.")
     else:
         if "secilen_aktif_grafik" not in st.session_state or st.session_state["secilen_aktif_grafik"] not in mevcut_varliklar:
             st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
-        st.subheader("📋 Sabit Liste Sinyalleri, Destek-Direnç Kademeleri ve Yorum Raporu")
+        st.subheader("📋 Sabit Liste Sinyalleri ve Teknik Rapor")
 
-        telegram_toplu_mesaj = f"📊 *Sabit Liste Toplu Sinyal ve Detaylı Teknik Rapor* (Periyot: {aktif_ayarlar['zaman_dilimi']})\n\n"
+        telegram_toplu_mesaj = f"📊 *Sabit Liste Toplu Sinyal ve Teknik Rapor*\n\n"
 
         for varlik in mevcut_varliklar:
             df_temp = veri_cek(varlik, aralik=aktif_ayarlar["zaman_dilimi"])
@@ -896,9 +794,9 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                         st.rerun()
                 st.divider()
 
-        if st.button("📤 Tüm Sabit Listenin Detaylı Analizini Telegram'a Şimdi Gönder", type="primary", use_container_width=True):
+        if st.button("📤 Tüm Sabit Listenin Analizini Telegram'a Gönder", type="primary", use_container_width=True):
             telegram_bildirim_gonder(telegram_toplu_mesaj)
-            st.success("Tüm analizler Telegram'a gönderildi!")
+            st.success("Analizler Telegram'a gönderildi!")
 
         st.divider()
         st.header(f"📊 Gelişmiş Grafik İncelemesi: `{st.session_state['secilen_aktif_grafik']}`")
@@ -959,4 +857,4 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
             
             st.plotly_chart(fig, use_container_width=True, config={"dragmode": drag_mode_val})
         else:
-            st.error("Seçilen varlık için veri yüklenemedi.")
+            st.error("Veri yüklenemedi.")
