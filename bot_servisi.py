@@ -1,12 +1,29 @@
 import time
+import os
+import json
+import urllib.request
+import urllib.parse
 import pandas as pd
 import yfinance as yf
 from datetime import datetime
 from ai_engine import ai_akilli_karar_ver
 
+def telegram_bildir(mesaj):
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = urllib.parse.urlencode({"chat_id": chat_id, "text": mesaj}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST")
+        with urllib.request.urlopen(req) as response:
+            pass
+    except Exception as e:
+        print(f"Telegram bildirim hatası: {e}")
+
 def varlik_verilerini_cek(varlik):
     try:
-        # Kripto sembol format uyarlaması (BTC/USDT -> BTC-USD)
         symbol = varlik.replace("/", "-")
         if "USDT" in symbol:
             symbol = symbol.replace("USDT", "USD")
@@ -28,7 +45,6 @@ def teknik_analiz_hesapla(df):
         df = df.copy()
         df['Close'] = df['Close'].astype(float)
         
-        # Temel RSI ve Seviye Hesaplama
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -48,24 +64,20 @@ def otonom_bot_dongusu():
     print("🤖 Otonom Sanal Cüzdan Botu Başlatıldı (7/24 Modu)...")
     
     takip_listesi = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"]
+    zaman_damgasi = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    print(f"\n--- Yeni Otonom Tur Başlıyor: {datetime.now()} ---")
+    rapor_metni = f"🤖 **Otonom Tur Başladı**\n📅 Zaman: {zaman_damgasi}\n\n"
     
     for varlik in takip_listesi:
-        # 1. Anlık Veri Çekimi
         df = varlik_verilerini_cek(varlik)
         if df is None or df.empty:
-            print(f"Uyarı: {varlik} için veri alınamadı, atlanıyor.")
             continue
         
-        # 2. Teknik Analiz Hesaplama
         analiz_df = teknik_analiz_hesapla(df)
         if analiz_df is None or analiz_df.empty:
-            print(f"Uyarı: {varlik} için teknik analiz oluşturulamadı.")
             continue
         
         son_veri = analiz_df.iloc[-1]
-        
         fiyat = float(son_veri['Close'])
         if fiyat == 0:
             continue
@@ -76,7 +88,6 @@ def otonom_bot_dongusu():
         macd = str(son_veri.get('MACD_Status', 'NÖTR'))
         p_sinyal = str(son_veri.get('Signal', 'BEKLE'))
         
-        # 3. Yapay Zekadan Otonom Karar Alınması
         karar, gerekce = ai_akilli_karar_ver(
             varlik=varlik, 
             fiyat=fiyat, 
@@ -87,8 +98,11 @@ def otonom_bot_dongusu():
             macd_durumu=macd
         )
         
+        rapor_metni += f"🔹 **{varlik}**\n💰 Fiyat: `{fiyat}`\n🎯 Karar: **{karar}**\n📝 Gerekçe: {gerekce}\n\n"
         print(f"Varlık: {varlik} | Fiyat: {fiyat} | Karar: {karar}")
-        print(f"Gerekçe: {gerekce}")
+
+    # Toplu raporu Telegram'a gönder
+    telegram_bildir(rapor_metni)
 
 if __name__ == "__main__":
     otonom_bot_dongusu()
