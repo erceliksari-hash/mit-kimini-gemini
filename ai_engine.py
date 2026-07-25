@@ -1,6 +1,6 @@
 import google.generativeai as genai
-
-# genai.configure(api_key="BURAYA_API_ANAHTARINIZ")
+# API anahtarınızı buraya ekleyin veya çevre değişkeni olarak tanımlayın
+genai.configure(api_key="BURAYA_API_ANAHTARINIZI_YAZIN")
 
 def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi, macd_durumu):
     try:
@@ -30,7 +30,8 @@ def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi, macd_durumu):
             return "SAT", response.text
         else:
             return "BEKLE", response.text
+            
     except Exception as e:
         if "AL" in p_sinyal.upper() or "YÜKSELİŞ" in p_sinyal.upper():
-            return "AL", "API fallback: Teknik sinyal baz alındı."
+            return "AL", f"API fallback (Hata nedeniyle teknik sinyal baz alındı): {str(e)}"
         return "BEKLE", f"Hata: {str(e)}"
