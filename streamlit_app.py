@@ -194,176 +194,177 @@ sayfa = st.sidebar.radio(
 )
 st.sidebar.divider()
 
-# VARLIK LİSTELERİ
+# ALFABETİK OLARAK SIRALANMIŞ VARLIK LİSTELERİ VE KATEGORİLERİ
 HAZIR_VARLIKLAR = {
     "BIST 100 Kapsamlı Liste": {
-        "THYAO (Türk Hava Yolları)": "THYAO.IS",
-        "GARAN (Garanti BBVA)": "GARAN.IS",
-        "ISMEN (İş Yatırım)": "ISMEN.IS",
-        "ASELS (Aselsan)": "ASELS.IS",
-        "EREGL (Ereğli Demir Çelik)": "EREGL.IS",
-        "KCHOL (Koç Holding)": "KCHOL.IS",
-        "SAHOL (Sabancı Holding)": "SAHOL.IS",
-        "TUPRS (Tüpraş)": "TUPRS.IS",
-        "BIMAS (BİM Mağazalar)": "BIMAS.IS",
         "AKBNK (Akbank)": "AKBNK.IS",
-        "FROTO (Ford Otosan)": "FROTO.IS",
-        "PGSUS (Pegasus)": "PGSUS.IS",
-        "PETKM (Petkim)": "PETKM.IS",
-        "SASA (Sasa Polyester)": "SASA.IS",
-        "HEKTS (Hektaş)": "HEKTS.IS",
-        "YKBNK (Yapı Kredi)": "YKBNK.IS",
-        "TOASO (Tofaş)": "TOASO.IS",
-        "ARCLK (Arçelik)": "ARCLK.IS",
-        "ENKAI (Enka İnşaat)": "ENKAI.IS",
-        "ODAS (Odaş Elektrik)": "ODAS.IS",
-        "MGROS (Migros Ticaret)": "MGROS.IS",
-        "KRDMD (Kardemir D)": "KRDMD.IS",
-        "TCELL (Turkcell)": "TCELL.IS",
-        "TTKOM (Türk Telekom)": "TTKOM.IS",
-        "OYAKC (Oyak Çimento)": "OYAKC.IS",
-        "KOZAL (Koza Altın)": "KOZAL.IS",
-        "SOKM (Şok Marketler)": "SOKM.IS",
-        "VESTL (Vestel)": "VESTL.IS",
         "ALARK (Alarko Holding)": "ALARK.IS",
+        "ARCLK (Arçelik)": "ARCLK.IS",
+        "ASELS (Aselsan)": "ASELS.IS",
+        "BIMAS (BİM Mağazalar)": "BIMAS.IS",
+        "ENKAI (Enka İnşaat)": "ENKAI.IS",
+        "EREGL (Ereğli Demir Çelik)": "EREGL.IS",
+        "FROTO (Ford Otosan)": "FROTO.IS",
+        "GARAN (Garanti BBVA)": "GARAN.IS",
         "GUBRF (Gübre Fabrikaları)": "GUBRF.IS",
-        "TKFEN (Tekfen Holding)": "TKFEN.IS",
         "HALKB (Halkbank)": "HALKB.IS",
-        "VAKBN (VakıfBank)": "VAKBN.IS",
+        "HEKTS (Hektaş)": "HEKTS.IS",
+        "ISMEN (İş Yatırım)": "ISMEN.IS",
+        "KCHOL (Koç Holding)": "KCHOL.IS",
+        "KOZAL (Koza Altın)": "KOZAL.IS",
+        "KRDMD (Kardemir D)": "KRDMD.IS",
+        "MGROS (Migros Ticaret)": "MGROS.IS",
+        "ODAS (Odaş Elektrik)": "ODAS.IS",
+        "OYAKC (Oyak Çimento)": "OYAKC.IS",
+        "PETKM (Petkim)": "PETKM.IS",
+        "PGSUS (Pegasus)": "PGSUS.IS",
+        "SAHOL (Sabancı Holding)": "SAHOL.IS",
+        "SASA (Sasa Polyester)": "SASA.IS",
+        "SOKM (Şok Marketler)": "SOKM.IS",
+        "TCELL (Turkcell)": "TCELL.IS",
+        "THYAO (Türk Hava Yolları)": "THYAO.IS",
+        "TKFEN (Tekfen Holding)": "TKFEN.IS",
+        "TOASO (Tofaş)": "TOASO.IS",
         "TSKB (T.S.K.B.)": "TSKB.IS",
+        "TTKOM (Türk Telekom)": "TTKOM.IS",
+        "TUPRS (Tüpraş)": "TUPRS.IS",
+        "VAKBN (VakıfBank)": "VAKBN.IS",
+        "VESTL (Vestel)": "VESTL.IS",
+        "YKBNK (Yapı Kredi)": "YKBNK.IS",
         "ZOREN (Zorlu Enerji)": "ZOREN.IS",
     },
     "Kripto (İlk 50 / Popüler)": {
-        "Bitcoin (BTC)": "BTC-USD",
-        "Ethereum (ETH)": "ETH-USD",
-        "Solana (SOL)": "SOL-USD",
-        "Ripple (XRP)": "XRP-USD",
-        "Cardano (ADA)": "ADA-USD",
-        "Avalanche (AVAX)": "AVAX-USD",
-        "Dogecoin (DOGE)": "DOGE-USD",
-        "Polkadot (DOT)": "DOT-USD",
-        "Chainlink (LINK)": "LINK-USD",
-        "Polygon (MATIC / POL)": "MATIC-USD",
-        "Uniswap (UNI)": "UNI-USD",
-        "Litecoin (LTC)": "LTC-USD",
-        "Near Protocol (NEAR)": "NEAR-USD",
-        "Cosmos (ATOM)": "ATOM-USD",
-        "Aptos (APT)": "APT-USD",
-        "Sui (SUI)": "SUI-USD",
-        "Arbitrum (ARB)": "ARB-USD",
-        "Optimism (OP)": "OP-USD",
-        "Ethereum Classic (ETC)": "ETC-USD",
-        "Filecoin (FIL)": "FIL-USD",
-        "Internet Computer (ICP)": "ICP-USD",
-        "Immutable (IMX)": "IMX-USD",
-        "Render (RNDR)": "RNDR-USD",
-        "Injective (INJ)": "INJ-USD",
-        "Celestia (TIA)": "TIA-USD",
-        "Stacks (STX)": "STX-USD",
-        "The Graph (GRT)": "GRT-USD",
-        "Sei (SEI)": "SEI-USD",
-        "Fetch.ai (FET)": "FET-USD",
-        "Kaspa (KAS)": "KAS-USD",
-        "Hedera (HBAR)": "HBAR-USD",
-        "Stellar (XLM)": "XLM-USD",
-        "Algorand (ALGO)": "ALGO-USD",
-        "VeChain (VET)": "VET-USD",
-        "Theta Network (THETA)": "THETA-USD",
-        "Fantom (FTM)": "FTM-USD",
-        "Decentraland (MANA)": "MANA-USD",
-        "The Sandbox (SAND)": "SAND-USD",
-        "Axie Infinity (AXS)": "AXS-USD",
         "Aave (AAVE)": "AAVE-USD",
-        "Maker (MKR)": "MKR-USD",
-        "Shiba Inu (SHIB)": "SHIB-USD",
-        "Pepe (PEPE)": "PEPE-USD",
-        "Floki (FLOKI)": "FLOKI-USD",
+        "Algorand (ALGO)": "ALGO-USD",
+        "Aptos (APT)": "APT-USD",
+        "Arbitrum (ARB)": "ARB-USD",
+        "Avalanche (AVAX)": "AVAX-USD",
+        "Axie Infinity (AXS)": "AXS-USD",
+        "Bitcoin (BTC)": "BTC-USD",
         "Bonk (BONK)": "BONK-USD",
-    },
-    "NASDAQ Liderleri": {
-        "Apple (AAPL)": "AAPL",
-        "Microsoft (MSFT)": "MSFT",
-        "Alphabet / Google (GOOGL)": "GOOGL",
-        "Amazon (AMZN)": "AMZN",
-        "NVIDIA (NVDA)": "NVDA",
-        "Tesla (TSLA)": "TSLA",
-        "Meta Platforms (META)": "META",
-        "Netflix (NFLX)": "NFLX",
-        "Advanced Micro Devices (AMD)": "AMD",
-        "Intel (INTC)": "INTC",
-        "Qualcomm (QCOM)": "QCOM",
-        "Adobe (ADBE)": "ADBE",
-        "PayPal (PYPL)": "PYPL",
-        "PepsiCo (PEP)": "PEP",
-        "Costco (COST)": "COST",
-        "Broadcom (AVGO)": "AVGO",
-        "Cisco Systems (CSCO)": "CSCO",
-        "T-Mobile (TMUS)": "TMUS",
-        "Texas Instruments (TXN)": "TXN",
-        "Amgen (AMGN)": "AMGN",
-        "Starbucks (SBUX)": "SBUX",
-        "Mondelez (MDLZ)": "MDLZ",
-        "Automatic Data Processing (ADP)": "ADP",
-        "Gilead Sciences (GILD)": "GILD",
-        "Intuitive Surgical (ISRG)": "ISRG",
-        "Booking Holdings (BKNG)": "BKNG",
-        "Micron Technology (MU)": "MU",
-        "Lam Research (LRCX)": "LRCX",
-        "Palo Alto Networks (PANW)": "PANW",
-        "Synopsys (SNPS)": "SNPS",
-    },
-    "S&P 500 Liderleri": {
-        "S&P 500 ETF (SPY)": "SPY",
-        "Berkshire Hathaway (BRK-B)": "BRK-B",
-        "JPMorgan Chase (JPM)": "JPM",
-        "Visa (V)": "V",
-        "UnitedHealth (UNH)": "UNH",
-        "Johnson & Johnson (JNJ)": "JNJ",
-        "Exxon Mobil (XOM)": "XOM",
-        "Walmart (WMT)": "WMT",
-        "Mastercard (MA)": "MA",
-        "Procter & Gamble (PG)": "PG",
-        "Home Depot (HD)": "HD",
-        "Walt Disney (DIS)": "DIS",
-        "Bank of America (BAC)": "BAC",
-        "Chevron (CVX)": "CVX",
-        "AbbVie (ABBV)": "ABBV",
-        "Pfizer (PFE)": "PFE",
-        "Coca-Cola (KO)": "KO",
-        "Merck & Co (MRK)": "MRK",
-        "Thermo Fisher Scientific (TMO)": "TMO",
-        "Abbott Laboratories (ABBT / ABT)": "ABT",
-        "Accenture (ACN)": "ACN",
-        "Wells Fargo (WFC)": "WFC",
-        "McDonald's (MCD)": "MCD",
-        "Danaher (DHR)": "DHR",
-        "Nike (NKE)": "NKE",
-        "Philip Morris (PM)": "PM",
+        "Cardano (ADA)": "ADA-USD",
+        "Celestia (TIA)": "TIA-USD",
+        "Chainlink (LINK)": "LINK-USD",
+        "Cosmos (ATOM)": "ATOM-USD",
+        "Decentraland (MANA)": "MANA-USD",
+        "Dogecoin (DOGE)": "DOGE-USD",
+        "Ethereum (ETH)": "ETH-USD",
+        "Ethereum Classic (ETC)": "ETC-USD",
+        "Fantom (FTM)": "FTM-USD",
+        "Fetch.ai (FET)": "FET-USD",
+        "Filecoin (FIL)": "FIL-USD",
+        "Floki (FLOKI)": "FLOKI-USD",
+        "Hedera (HBAR)": "HBAR-USD",
+        "Immutable (IMX)": "IMX-USD",
+        "Injective (INJ)": "INJ-USD",
+        "Internet Computer (ICP)": "ICP-USD",
+        "Kaspa (KAS)": "KAS-USD",
+        "Litecoin (LTC)": "LTC-USD",
+        "Maker (MKR)": "MKR-USD",
+        "Near Protocol (NEAR)": "NEAR-USD",
+        "Optimism (OP)": "OP-USD",
+        "Pepe (PEPE)": "PEPE-USD",
+        "Polkadot (DOT)": "DOT-USD",
+        "Polygon (MATIC / POL)": "MATIC-USD",
+        "Render (RNDR)": "RNDR-USD",
+        "Ripple (XRP)": "XRP-USD",
+        "Sei (SEI)": "SEI-USD",
+        "Shiba Inu (SHIB)": "SHIB-USD",
+        "Solana (SOL)": "SOL-USD",
+        "Stacks (STX)": "STX-USD",
+        "Stellar (XLM)": "XLM-USD",
+        "Sui (SUI)": "SUI-USD",
+        "The Graph (GRT)": "GRT-USD",
+        "The Sandbox (SAND)": "SAND-USD",
+        "Theta Network (THETA)": "THETA-USD",
+        "Uniswap (UNI)": "UNI-USD",
+        "VeChain (VET)": "VET-USD",
     },
     "Küresel Emtialar ve Fonlar": {
         "Altın (Gold Ons)": "GC=F",
-        "Gümüş (Silver Ons)": "SI=F",
-        "Ham Petrol (Crude Oil)": "CL=F",
         "Brent Petrol": "BZ=F",
         "Doğalgaz (Natural Gas)": "NG=F",
-        "Vanguard S&P 500 ETF (VOO)": "VOO",
-        "Vanguard Total Stock Market (VTI)": "VTI",
+        "Gümüş (Silver Ons)": "SI=F",
+        "Ham Petrol (Crude Oil)": "CL=F",
         "Invesco QQQ (Nasdaq 100 ETF)": "QQQ",
         "iShares Gold Trust (GLD)": "GLD",
         "iShares Silver Trust (SLV)": "SLV",
-    }
+        "Vanguard S&P 500 ETF (VOO)": "VOO",
+        "Vanguard Total Stock Market (VTI)": "VTI",
+    },
+    "NASDAQ Liderleri": {
+        "Adobe (ADBE)": "ADBE",
+        "Advanced Micro Devices (AMD)": "AMD",
+        "Alphabet / Google (GOOGL)": "GOOGL",
+        "Amazon (AMZN)": "AMZN",
+        "Amgen (AMGN)": "AMGN",
+        "Apple (AAPL)": "AAPL",
+        "Automatic Data Processing (ADP)": "ADP",
+        "Booking Holdings (BKNG)": "BKNG",
+        "Broadcom (AVGO)": "AVGO",
+        "Cisco Systems (CSCO)": "CSCO",
+        "Costco (COST)": "COST",
+        "Gilead Sciences (GILD)": "GILD",
+        "Intel (INTC)": "INTC",
+        "Intuitive Surgical (ISRG)": "ISRG",
+        "Lam Research (LRCX)": "LRCX",
+        "Meta Platforms (META)": "META",
+        "Micron Technology (MU)": "MU",
+        "Microsoft (MSFT)": "MSFT",
+        "Mondelez (MDLZ)": "MDLZ",
+        "Netflix (NFLX)": "NFLX",
+        "NVIDIA (NVDA)": "NVIDIA",
+        "Palo Alto Networks (PANW)": "PANW",
+        "PayPal (PYPL)": "PYPL",
+        "PepsiCo (PEP)": "PEP",
+        "Qualcomm (QCOM)": "QCOM",
+        "Starbucks (SBUX)": "SBUX",
+        "Synopsys (SNPS)": "SNPS",
+        "T-Mobile (TMUS)": "TMUS",
+        "Tesla (TSLA)": "TSLA",
+        "Texas Instruments (TXN)": "TXN",
+    },
+    "S&P 500 Liderleri": {
+        "Abbott Laboratories (ABBT / ABT)": "ABT",
+        "AbbVie (ABBV)": "ABBV",
+        "Accenture (ACN)": "ACN",
+        "Bank of America (BAC)": "BAC",
+        "Berkshire Hathaway (BRK-B)": "BRK-B",
+        "Chevron (CVX)": "CVX",
+        "Coca-Cola (KO)": "KO",
+        "Danaher (DHR)": "DHR",
+        "Exxon Mobil (XOM)": "XOM",
+        "Home Depot (HD)": "HD",
+        "Johnson & Johnson (JNJ)": "JNJ",
+        "JPMorgan Chase (JPM)": "JPM",
+        "Mastercard (MA)": "MA",
+        "McDonald's (MCD)": "MCD",
+        "Merck & Co (MRK)": "MRK",
+        "Nike (NKE)": "NKE",
+        "Pfizer (PFE)": "PFE",
+        "Philip Morris (PM)": "PM",
+        "Procter & Gamble (PG)": "PG",
+        "S&P 500 ETF (SPY)": "SPY",
+        "Thermo Fisher Scientific (TMO)": "TMO",
+        "UnitedHealth (UNH)": "UNH",
+        "Visa (V)": "V",
+        "Walmart (WMT)": "WMT",
+        "Walt Disney (DIS)": "DIS",
+        "Wells Fargo (WFC)": "WFC",
+    },
 }
 
 if sayfa == "📚 Varlık Havuzu":
     st.title("📚 Varlık Havuzu ve Piyasalar")
     secilenler = set(aktif_ayarlar["varliklar"])
 
-    tab_bist, tab_kripto, tab_nasdaq, tab_sp500, tab_emtia_fon = st.tabs([
+    tab_bist, tab_kripto, tab_emtia, tab_nasdaq, tab_sp500, tab_ozel = st.tabs([
         "🇹🇷 BIST 100",
         "🪙 Kripto (İlk 50)",
+        "🛢️ Fonlar & Emtialar",
         "💻 NASDAQ",
         "📈 S&P 500",
-        "🛢️ Fonlar & Emtialar",
+        "⭐ Özel Varlıklar",
     ])
 
     kategoriler_listesi = list(HAZIR_VARLIKLAR.keys())
@@ -384,9 +385,17 @@ if sayfa == "📚 Varlık Havuzu":
             else:
                 secilenler.discard(kod)
 
+    with tab_emtia:
+        st.subheader("Küresel Emtialar ve Fonlar / ETF'ler")
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[2]].items():
+            if st.checkbox(isim, value=(kod in secilenler), key=f"hef_{kod}"):
+                secilenler.add(kod)
+            else:
+                secilenler.discard(kod)
+
     with tab_nasdaq:
         st.subheader("NASDAQ Teknoloji Liderleri")
-        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[2]].items():
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[3]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hn_{kod}"):
                 secilenler.add(kod)
             else:
@@ -394,19 +403,25 @@ if sayfa == "📚 Varlık Havuzu":
 
     with tab_sp500:
         st.subheader("S&P 500 Liderleri ve ETF")
-        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[3]].items():
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[4]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hs_{kod}"):
                 secilenler.add(kod)
             else:
                 secilenler.discard(kod)
 
-    with tab_emtia_fon:
-        st.subheader("Küresel Emtialar ve Fonlar / ETF'ler")
-        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[4]].items():
-            if st.checkbox(isim, value=(kod in secilenler), key=f"hef_{kod}"):
-                secilenler.add(kod)
-            else:
-                secilenler.discard(kod)
+    with tab_ozel:
+        st.subheader("⭐ Özel Olarak Eklediğiniz Varlıklar")
+        tum_hazir_kodlar = {kod for kat in HAZIR_VARLIKLAR.values() for kod in kat.values()}
+        ozel_kodlar = [k for k in secilenler if k not in tum_hazir_kodlar]
+        
+        if not ozel_kodlar:
+            st.info("Henüz özel olarak eklenmiş ek bir varlık bulunmuyor. Aşağıdaki alandan yeni özel varlık ekleyebilirsiniz.")
+        else:
+            for kod in sorted(ozel_kodlar):
+                if st.checkbox(f"Özel Varlık: {kod}", value=(kod in secilenler), key=f"ozel_{kod}"):
+                    secilenler.add(kod)
+                else:
+                    secilenler.discard(kod)
 
     st.divider()
     manuel = (
@@ -419,7 +434,11 @@ if sayfa == "📚 Varlık Havuzu":
     )
     if st.button("➕ Özel Varlık Ekle") and manuel:
         secilenler.add(manuel)
+        aktif_ayarlar["varliklar"] = list(secilenler)
+        ayarlari_kaydet(aktif_ayarlar)
         st.success(f"{manuel} eklendi!")
+        time.sleep(0.5)
+        st.rerun()
 
     st.divider()
     if st.button(
