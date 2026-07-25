@@ -1,11 +1,14 @@
 import os
-from dotenv import load_dotenv
 import google.generativeai as genai
 
-# .env dosyasındaki ortam değişkenlerini otomatik olarak yükler (Yerel kullanım için)
-load_dotenv()
+# Yerel ortamda .env dosyasını okumaya çalışır, sunucuda (Render) hata vermez
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-# API anahtarını çevre değişkenlerinden güvenli bir şekilde alır (Render / Yerel)
+# API anahtarını çevre değişkenlerinden güvenli bir şekilde alır
 api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
