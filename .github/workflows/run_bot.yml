@@ -1,29 +1,67 @@
-name: Otonom Bot Calistirici
+name: Otonom Finans Botu
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Her 15 dakikada bir otomatik çalışır
-  workflow_dispatch:        # Elle test etmek isterseniz buton çıkmasını sağlar
+    - cron: '0 */6 * * *'  # Her 6 saatte bir
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Çalışma Modu'
+        required: true
+        default: 'bot'
+        type: choice
+        options:
+          - bot
+          - backtest
+          - rapor
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Kodlari Indir (Checkout)
+      - name: Kodları İndir
         uses: actions/checkout@v4
 
       - name: Python Kurulumu
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Kutuphaneleri Yukle
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Bağımlılıkları Yükle
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Botu Calistir
+      - name: Ayarları Oluştur
+        run: |
+          echo '${{ secrets.AYARLAR_JSON }}' > ayarlar.json
+
+      - name: Botu Çalıştır (${{ github.event.inputs.mode || 'bot' }})
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python bot_servisi.py
+          MODE="${{ github.event.inputs.mode || 'bot' }}"
+          if [ "$MODE" = "backtest" ]; then
+            python bot_servisi.py --mode=backtest
+          elif [ "$MODE" = "rapor" ]; then
+            python bot_servisi.py --mode=rapor
+          else
+            python bot_servisi.py
+          fi
+
+      - name: Cüzdanı Cache'le
+        uses: actions/cache@v3
+        with:
+          path: sanal_cuzdan_arsiv.json
+          key: cuzdan-${{ github.run_id }}
+          restore-keys: cuzdan-
