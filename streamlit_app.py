@@ -90,6 +90,60 @@ def internette_varlik_ara(sorgu):
         return []
 
 
+# --- DETAYLI TEKNİK ANALİZ VE YORUM OLUŞTURUCU ---
+def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
+    fiyat = p_analiz["fiyat"]
+    d1 = p_analiz["destek"]
+    r1 = p_analiz["direnc"]
+
+    # Çoklu Destek (S1, S2, S3) ve Direnç (R1, R2, R3) Seviyeleri
+    s1 = d1
+    s2 = s1 * 0.985
+    s3 = s1 * 0.970
+
+    r1_val = r1
+    r2 = r1_val * 1.015
+    r3 = r1_val * 1.030
+
+    # Stop-Loss ve Take-Profit
+    stop_loss = s1 if s1 < fiyat else fiyat * 0.97
+    take_profit = r1_val if r1_val > fiyat else fiyat * 1.05
+
+    is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
+    gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
+
+    # Trend ve Geçiş Seviyesi Yorumlama
+    sinyal_ust = p_sinyal.upper()
+    if "AL" in sinyal_ust or "YÜKSELİŞ" in sinyal_ust:
+        trend_yorum = "📈 *Yükseliş Trendi Hâkim.* Fiyat yukarı yönlü direnç bölgelerini test ediyor."
+        gecis_yorum = f"Yükseliş Teyit Eşiği: `{r1_val:.2f}` üzeri tutunma."
+    elif "SAT" in sinyal_ust or "DÜŞÜŞ" in sinyal_ust:
+        trend_yorum = "📉 *Düşüş Baskısı Hâkim.* Satış baskısı devam ediyor, destekler takip edilmeli."
+        gecis_yorum = f"Düşüş Derinleşme Eşiği: `{s1:.2f}` altı kırılım."
+    else:
+        trend_yorum = "⚖️ *Yatay / Belirsiz Seyir.* Konsolidasyon alanı içerisinde hareket ediyor."
+        gecis_yorum = f"Kırılım Seviyeleri: `{r1_val:.2f}` Üstü Yükseliş | `{s1:.2f}` Altı Düşüş"
+
+    # Sahte Sinyal Yorumlama
+    if is_fake:
+        sahte_yorum = "⚠️ *SİNYAL UYARISI:* Sahte/Tuzak sinyal tespit edildi! Hacim veya yardımcı indikatör doğrulaması zayıf. Temkinli olunmalı."
+    else:
+        sahte_yorum = "✅ *GÜVENİLİR SİNYAL:* İndikatör ve hacim teyidi mevcut."
+
+    rapor_metni = (
+        f"🔹 *{varlik}*\n"
+        f"   • *Fiyat:* `{fiyat:.2f}` | *Durum:* `{p_sinyal}`\n"
+        f"   • *Geçiş Zamanı:* `{gecis_tarihi}`\n"
+        f"   • *Destekler:* S1: `{s1:.2f}` | S2: `{s2:.2f}` | S3: `{s3:.2f}`\n"
+        f"   • *Dirençler:* R1: `{r1_val:.2f}` | R2: `{r2:.2f}` | R3: `{r3:.2f}`\n"
+        f"   • *Stop-Loss (SL):* `{stop_loss:.2f}` | *Take-Profit (TP):* `{take_profit:.2f}`\n"
+        f"   • *Geçiş Seviyesi Yorumu:* {gecis_yorum}\n"
+        f"   • *Teknik Değerlendirme:* {trend_yorum}\n"
+        f"   • *Sinyal Kalitesi:* {sahte_yorum}\n\n"
+    )
+    return rapor_metni
+
+
 # --- TELEGRAM BOT VE OTOMATİK RAPORLAMA ---
 def telegram_bildirim_gonder(mesaj):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -116,7 +170,7 @@ def otomatik_tarama_botu():
             bekleme_suresi = ayarlar.get("bot_sikligi_dk", 60) * 60
 
             if varliklar:
-                telegram_toplu_mesaj = f"📊 *Otomatik Sinyal, Stop-Loss ve TP Raporu* (Periyot: {zaman_dilimi})\n\n"
+                telegram_toplu_mesaj = f"📊 *Otomatik Detaylı Sinyal ve Teknik Analiz Raporu* (Periyot: {zaman_dilimi})\n\n"
                 for varlik in varliklar:
                     df_t = veri_cek(varlik, aralik=zaman_dilimi)
                     if df_t is not None and not df_t.empty:
@@ -124,23 +178,8 @@ def otomatik_tarama_botu():
                         p_analiz = donusum_noktalari_hesapla(df_t_analiz)
                         p_sinyal = sinyal_kontrol(df_t_analiz)
 
-                        fiyat = p_analiz["fiyat"]
-                        destek = p_analiz["destek"]
-                        direnc = p_analiz["direnc"]
-                        stop_loss = destek if destek < fiyat else fiyat * 0.97
-                        take_profit = direnc if direnc > fiyat else fiyat * 1.05
-
-                        is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
-                        gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
-
-                        telegram_toplu_mesaj += (
-                            f"🔹 *{varlik}*\n"
-                            f"   • Fiyat: `{fiyat:.2f}`\n"
-                            f"   • Durum: `{p_sinyal}`\n"
-                            f"   • Geçiş Zamanı: `{gecis_tarihi}`\n"
-                            f"   • Stop-Loss (SL): `{stop_loss:.2f}`\n"
-                            f"   • Take-Profit (TP): `{take_profit:.2f}`\n"
-                            f"   • Sahte Sinyal: `{'Evet ⚠️' if is_fake else 'Hayır ✅'}`\n\n"
+                        telegram_toplu_mesaj += detayli_analiz_ve_yorum_olustur(
+                            varlik, df_t_analiz, p_analiz, p_sinyal
                         )
                 telegram_bildirim_gonder(telegram_toplu_mesaj)
         except:
@@ -218,7 +257,6 @@ sayfa = st.sidebar.radio(
 )
 st.sidebar.divider()
 
-# ALFABETİK OLARAK SIRALANMIŞ VARLIK LİSTELERİ VE KATEGORİLERİ
 HAZIR_VARLIKLAR = {
     "BIST 100 Kapsamlı Liste": {
         "AKBNK (Akbank)": "AKBNK.IS",
@@ -382,9 +420,8 @@ if sayfa == "📚 Varlık Havuzu":
     st.title("📚 Varlık Havuzu ve Piyasalar")
     secilenler = set(aktif_ayarlar["varliklar"])
 
-    # YENİ: Aktif Listeyi Doğrudan Yönetme ve Hızlı Silme Paneli
     st.subheader("📋 Aktif Varlık Listesi ve Yönetimi (Silme İşlemi)")
-    st.markdown("Şu an takip edilen varlıklarınız aşağıdadır. İstemediğiniz bir varlığı yanındaki **❌ Çıkar** butonuna basarak anında listeden silebilirsiniz.")
+    st.markdown("Şu an sabit olarak takip edilen varlıklarınız aşağıdadır. İstemediğiniz bir varlığı yanındaki **❌ Çıkar** butonuna basarak anında listeden silebilirsiniz.")
     
     if not secilenler:
         st.info("Aktif listenizde hiç varlık bulunmuyor.")
@@ -392,7 +429,6 @@ if sayfa == "📚 Varlık Havuzu":
         aktif_liste_sirali = sorted(list(secilenler))
         silinecekler_listesi = []
         
-        # 4'lü sütunlar halinde listeleme
         cols = st.columns(4)
         for i, v_kod in enumerate(aktif_liste_sirali):
             with cols[i % 4]:
@@ -404,7 +440,7 @@ if sayfa == "📚 Varlık Havuzu":
                 secilenler.discard(s_kod)
             aktif_ayarlar["varliklar"] = sorted(list(secilenler))
             ayarlari_kaydet(aktif_ayarlar)
-            st.success("Seçilen varlık listeden başarıyla çıkarıldı ve kaydedildi!")
+            st.success("Seçilen varlık listeden başarıyla çıkarıldı ve sabitlendi!")
             time.sleep(0.5)
             st.rerun()
 
@@ -728,7 +764,7 @@ elif sayfa == "⏳ Geriye Dönük Test":
 
 elif sayfa == "📈 Canlı Analiz & Sinyaller":
     st.title(
-        "📈 Sabit Varlık Sinyal Listesi, Geçiş Zamanları, Stop-Loss ve TP Kontrolü"
+        "📈 Sabit Varlık Sinyal Listesi, Çoklu Destek/Direnç ve Detaylı Teknik Yorum"
     )
     mevcut_varliklar = sorted(aktif_ayarlar.get("varliklar", []))
 
@@ -739,11 +775,10 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
             st.session_state["secilen_aktif_grafik"] = mevcut_varliklar[0]
 
         st.subheader(
-            "📋 Sabit Liste Sinyalleri, Geçiş Zamanları, Stop-Loss ve Take-Profit"
-            " Seviyeleri"
+            "📋 Sabit Liste Sinyalleri, Destek-Direnç Kademeleri ve Yorum Raporu"
         )
 
-        telegram_toplu_mesaj = f"📊 *Sabit Liste Toplu Sinyal, Stop-Loss ve TP Raporu* (Periyot: {aktif_ayarlar['zaman_dilimi']})\n\n"
+        telegram_toplu_mesaj = f"📊 *Sabit Liste Toplu Sinyal ve Detaylı Teknik Rapor* (Periyot: {aktif_ayarlar['zaman_dilimi']})\n\n"
 
         for varlik in mevcut_varliklar:
             df_temp = veri_cek(varlik, aralik=aktif_ayarlar["zaman_dilimi"])
@@ -752,46 +787,14 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 p_analiz = donusum_noktalari_hesapla(df_t_analiz)
                 p_sinyal = sinyal_kontrol(df_t_analiz)
 
-                fiyat = p_analiz["fiyat"]
-                destek = p_analiz["destek"]
-                direnc = p_analiz["direnc"]
-                stop_loss = destek if destek < fiyat else fiyat * 0.97
-                take_profit = direnc if direnc > fiyat else fiyat * 1.05
-
-                is_fake = df_t_analiz.iloc[-1].get("sahte_sinyal", False)
-                gecis_tarihi = df_t_analiz.iloc[-1].get("tarih", "-")
-
-                fake_durum_str = "Evet ⚠️ (Sahte / Zayıf Sinyal)" if is_fake else "Hayır ✅ (Güvenli Sinyal)"
-
-                if "AL" in p_sinyal.upper() or "YÜKSELİŞ" in p_sinyal.upper():
-                    gecis_aciklamasi = f"🚀 **Yükselişe Geçiş**"
-                    sahte_detay = f"• **Yükselişe Geçişte Sahte Sinyal Kontrolü:** `{fake_durum_str}`"
-                elif "SAT" in p_sinyal.upper() or "DÜŞÜŞ" in p_sinyal.upper():
-                    gecis_aciklamasi = f"⚠️ **Düşüşe Geçiş**"
-                    sahte_detay = f"• **Düşüşe Geçişte Sahte Sinyal Kontrolü:** `{fake_durum_str}`"
-                else:
-                    gecis_aciklamasi = f"⚖️ **Nötr / Yatay Seyir**"
-                    sahte_detay = f"• **Mevcut Durumda Sahte Sinyal Kontrolü:** `{fake_durum_str}`"
-
-                telegram_toplu_mesaj += (
-                    f"🔹 *{varlik}*\n"
-                    f"   • Fiyat: `{fiyat:.2f}`\n"
-                    f"   • Durum: `{p_sinyal}`\n"
-                    f"   • Geçiş Zamanı: `{gecis_tarihi}`\n"
-                    f"   • Stop-Loss (SL): `{stop_loss:.2f}`\n"
-                    f"   • Take-Profit (TP): `{take_profit:.2f}`\n"
-                    f"   • Sahte Sinyal: `{'Evet ⚠️' if is_fake else 'Hayır ✅'}`\n\n"
+                detay_metni = detayli_analiz_ve_yorum_olustur(
+                    varlik, df_t_analiz, p_analiz, p_sinyal
                 )
+                telegram_toplu_mesaj += detay_metni
 
                 col_info, col_btn = st.columns([4, 1])
                 with col_info:
-                    st.markdown(
-                        f"🔹 **{varlik}** | Fiyat: `{fiyat:.2f}` | Durum: {gecis_aciklamasi}\n\n"
-                        f"&nbsp;&nbsp;&nbsp;&nbsp;• **Geçiş Zamanı:** `{gecis_tarihi}`\n\n"
-                        f"&nbsp;&nbsp;&nbsp;&nbsp;{sahte_detay}\n\n"
-                        f"&nbsp;&nbsp;&nbsp;&nbsp;• **Stop-Loss (SL):** `{stop_loss:.2f}` &nbsp;|&nbsp; "
-                        f"**Take-Profit (TP):** `{take_profit:.2f}`"
-                    )
+                    st.markdown(detay_metni)
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button(
@@ -804,15 +807,13 @@ elif sayfa == "📈 Canlı Analiz & Sinyaller":
                 st.divider()
 
         if st.button(
-            "📤 Tüm Sabit Listenin Özetini (SL ve TP Dahil) Telegram'a Şimdi"
-            " Gönder",
+            "📤 Tüm Sabit Listenin Detaylı Analizini Telegram'a Şimdi Gönder",
             type="primary",
             use_container_width=True,
         ):
             telegram_bildirim_gonder(telegram_toplu_mesaj)
             st.success(
-                "Sabit listedeki tüm varlıkların analizi (Stop-Loss ve Kar Al"
-                " seviyeleriyle birlikte) Telegram'a başarıyla gönderildi!"
+                "Sabit listedeki tüm varlıkların detaylı analizi ve yorumları Telegram'a başarıyla gönderildi!"
             )
 
         st.divider()
