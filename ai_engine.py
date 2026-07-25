@@ -1,6 +1,7 @@
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
+from ai_memory import ai_prompt_gelistir, karar_kaydet, basari_istatistikleri
 
 load_dotenv()
 
@@ -8,27 +9,77 @@ api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
+# Güncel model adları (fallback sırasıyla)
+GEMINI_MODELS = [
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-pro",
+    "gemini-pro",
+]
 
-def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="NÖTR", trend="YATAY", hacim_durumu="NORMAL"):
+
+def _get_available_model():
+    """Çalışan bir Gemini modeli bulur."""
+    if not api_key:
+        return None
+
+    for model_name in GEMINI_MODELS:
+        try:
+            model = genai.GenerativeModel(model_name)
+            # Hızlı test
+            model.generate_content("Hi", generation_config={"max_output_tokens": 1})
+            print(f"[AI] Model bulundu: {model_name}")
+            return model_name
+        except Exception as e:
+            print(f"[AI] Model {model_name} başarısız: {e}")
+            continue
+
+    return None
+
+
+# Global olarak çalışan modeli cache'le
+_WORKING_MODEL = None
+
+def get_model():
+    """Cache'lenmiş çalışan modeli döndürür."""
+    global _WORKING_MODEL
+    if _WORKING_MODEL is None:
+        model_name = _get_available_model()
+        if model_name:
+            _WORKING_MODEL = genai.GenerativeModel(model_name)
+    return _WORKING_MODEL
+
+
+def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="NÖTR", 
+                        trend="YATAY", hacim_durumu="NORMAL", haber_sentiment=None, 
+                        hafiza_kullan=True, sinyal_turu="TEKNİK"):
     """
-    Gemini AI ile varlık analizi yapar.
-
-    Parametreler:
-        varlik: Varlık kodu
-        fiyat: Anlık fiyat
-        d1: Destek seviyesi
-        r1: Direnç seviyesi
-        p_sinyal: Teknik sinyal metni
-        rsi: RSI değeri (varsayılan: 50)
-        macd_durumu: MACD durumu (varsayılan: NÖTR)
-        trend: EMA20/50 trendi (varsayılan: YATAY)
-        hacim_durumu: Hacim durumu (varsayılan: NORMAL)
+    Gemini AI ile varlık analizi yapar. Haber sentiment'i opsiyonel olarak dahil edilir.
     """
     try:
-        if not api_key:
-            return _fallback_karar(p_sinyal, "API anahtarı bulunamadı")
+        model = get_model()
+        if not model:
+            return _fallback_karar(p_sinyal, "API anahtarı bulunamadı veya tüm modeller başarısız")
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Haber sentiment bilgisi
+        haber_bolumu = ""
+        if haber_sentiment:
+            haber_bolumu = f"""
+📰 HABER SENTIMENT ANALİZİ:
+• Genel Durum: {haber_sentiment.get('durum', 'Bilinmiyor')}
+• Ortalama Skor: {haber_sentiment.get('ortalama_sentiment', 0):+.1f}/100
+• Özet: {haber_sentiment.get('ozet', 'Veri yok')[:200]}
+"""
+
+        # AI Hafıza bilgisi
+        hafiza_bolumu = ""
+        if hafiza_kullan:
+            try:
+                istatistikler = basari_istatistikleri()
+                hafiza_bolumu = ai_prompt_gelistir(varlik, "BEKLE", istatistikler)
+            except:
+                pass
 
         prompt = f"""Sen profesyonel bir finansal analist ve quantitative trader'sın. 
 Aşağıdaki verileri objektif şekilde analiz ederek kesin bir işlem kararı ver.
@@ -45,6 +96,8 @@ Aşağıdaki verileri objektif şekilde analiz ederek kesin bir işlem kararı v
 • EMA Trendi: {trend}
 • Hacim Durumu: {hacim_durumu}
 • Sistem Sinyali: {p_sinyal}
+{haber_bolumu}
+{hafiza_bolumu}
 
 🎯 KURALLAR:
 1. RSI < 30 ve MACD yukarı kesiyorsa AL değerlendirilebilir
@@ -53,6 +106,8 @@ Aşağıdaki verileri objektif şekilde analiz ederek kesin bir işlem kararı v
 4. Fiyat direnç üzerindeyse KAR AL (SAT) düşünülebilir
 5. Sahte sinyal uyarısı varsa BEKLE
 6. Trend aksi yöndeyse BEKLE
+7. Haber sentiment AŞIRI NEGATİF ise ALMA (riskli)
+8. Haber sentiment AŞIRI POZİTİF ise SATMA (fomo)
 
 Lütfen şu formatta KESİN ve NET yanıt ver:
 KARAR: [AL / SAT / BEKLE]
@@ -64,12 +119,18 @@ STRATEJI: [SL: X.XX | TP: Y.YY]
         response = model.generate_content(prompt)
         yanit = response.text.strip()
 
-        # Karar çıkarımı
         karar = "BEKLE"
         if "KARAR: AL" in yanit.upper() or "KARAR:AL" in yanit.upper():
             karar = "AL"
         elif "KARAR: SAT" in yanit.upper() or "KARAR:SAT" in yanit.upper():
             karar = "SAT"
+
+        # Kararı hafızaya kaydet
+        try:
+            karar_kaydet(varlik=varlik, karar=karar, fiyat=fiyat, 
+                        sinyal_turu=sinyal_turu, notlar=yanit[:200])
+        except:
+            pass
 
         return karar, yanit
 
