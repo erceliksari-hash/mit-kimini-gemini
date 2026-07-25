@@ -599,6 +599,30 @@ HAZIR_VARLIKLAR = {
         "S&P 500 ETF (SPY)": "SPY",
         "Nasdaq 100 ETF (QQQ)": "QQQ"
     },
+    "Avrupa Borsaları (DAX 40 ve Liderler)": {
+        "SAP SE (SAP.DE)": "SAP.DE",
+        "Siemens (SIE.DE)": "SIE.DE",
+        "Allianz (ALV.DE)": "ALV.DE",
+        "Airbus (AIR.PA)": "AIR.PA",
+        "Deutsche Telekom (DTE.DE)": "DTE.DE",
+        "Mercedes-Benz Group (MBG.DE)": "MBG.DE",
+        "BMW (BMW.DE)": "BMW.DE",
+        "Volkswagen (VOW3.DE)": "VOW3.DE",
+        "BASF (BAS.DE)": "BAS.DE",
+        "Muenchener Rueckversicherung (MUV2.DE)": "MUV2.DE",
+        "Infineon Technologies (IFX.DE)": "IFX.DE",
+        "Deutsche DHL Group (DHL.DE)": "DHL.DE",
+        "Adidas (ADS.DE)": "ADS.DE",
+        "E.ON (EOAN.DE)": "EOAN.DE",
+        "RWE (RWE.DE)": "RWE.DE",
+        "Bayer (BAYN.DE)": "BAYN.DE",
+        "LVMH (MC.PA)": "MC.PA",
+        "TotalEnergies (TTE.PA)": "TTE.PA",
+        "ASML Holding (ASML.AS)": "ASML.AS",
+        "Nestle (NESN.SW)": "NESN.SW",
+        "Roche Holding (ROG.SW)": "ROG.SW",
+        "Novartis (NOVN.SW)": "NOVN.SW"
+    }
 }
 
 if sayfa == "📚 Varlık Havuzu":
@@ -631,11 +655,12 @@ if sayfa == "📚 Varlık Havuzu":
 
     st.divider()
 
-    tab_bist, tab_kripto, tab_emtia, tab_abd, tab_ozel = st.tabs([
+    tab_bist, tab_kripto, tab_emtia, tab_abd, tab_avrupa, tab_ozel = st.tabs([
         "🇹🇷 BIST",
         "🪙 Kripto",
         "🛢️ Emtia & Forex",
         "📈 ABD Liderleri",
+        "🇪🇺 Avrupa",
         "⭐ Özel Varlıklar",
     ])
 
@@ -665,6 +690,13 @@ if sayfa == "📚 Varlık Havuzu":
     with tab_abd:
         for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[3]].items():
             if st.checkbox(isim, value=(kod in secilenler), key=f"hn_{kod}"):
+                secilenler.add(kod)
+            else:
+                secilenler.discard(kod)
+
+    with tab_avrupa:
+        for isim, kod in HAZIR_VARLIKLAR[kategoriler_listesi[4]].items():
+            if st.checkbox(isim, value=(kod in secilenler), key=f"hav_{kod}"):
                 secilenler.add(kod)
             else:
                 secilenler.discard(kod)
