@@ -1,6 +1,10 @@
+import os
 import google.generativeai as genai
-# API anahtarınızı buraya ekleyin veya çevre değişkeni olarak tanımlayın
-genai.configure(api_key="BURAYA_API_ANAHTARINIZI_YAZIN")
+
+# API anahtarını sunucu ortamından güvenli bir şekilde alır
+api_key = os.environ.get("GEMINI_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
 
 def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi, macd_durumu):
     try:
