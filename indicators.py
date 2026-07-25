@@ -2,55 +2,59 @@ import pandas as pd
 import numpy as np
 
 def hesapla_teknikler(df):
-    # SMA (Hareketli Ortalamalar)
+    """Teknik indikatörleri hesaplar ve df'ye ekler."""
     df['sma_20'] = df['close'].rolling(window=20).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
-
-    # RSI (Göreceli Güç Endeksi)
+    
+    # Bollinger Bantları
+    df['std'] = df['close'].rolling(window=20).std()
+    df['bollinger_ust'] = df['sma_20'] + (df['std'] * 2)
+    df['bollinger_alt'] = df['sma_20'] - (df['std'] * 2)
+    
+    # RSI (14)
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
-
-    # Bollinger Bantları (20 Periyot, 2 Standart Sapma)
-    df['bollinger_ust'] = df['sma_20'] + 2 * df['close'].rolling(window=20).std()
-    df['bollinger_alt'] = df['sma_20'] - 2 * df['close'].rolling(window=20).std()
-
-    # MACD (12, 26, 9)
-    exp1 = df['close'].ewm(span=12, adjust=False).mean()
-    exp2 = df['close'].ewm(span=26, adjust=False).mean()
-    df['macd'] = exp1 - exp2
+    
+    # MACD
+    ema_12 = df['close'].ewm(span=12, adjust=False).mean()
+    ema_26 = df['close'].ewm(span=26, adjust=False).mean()
+    df['macd'] = ema_12 - ema_26
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-
-    # ==============================================================================
-    # 🎯 KULLANICININ ÖZEL İNDİKATÖRÜ (İleride buraya formülünü yazabilirsin)
-    # ==============================================================================
-    # Örnek: df['ozel_indikator'] = df['close'].rolling(window=10).mean() * 1.02
-    df['ozel_indikator'] = df['close'].rolling(window=10).mean() # Şimdilik örnek bir ortalama
-
-    # Tarihsel Long/Short Sinyalleri 
+    
+    # Özel İndikatör (Örnek olarak SMA 20'yi yansıtıyoruz)
+    df['ozel_indikator'] = df['sma_20']
+    
+    # BACKTEST İÇİN GEÇMİŞ SİNYALLER (Golden Cross / Death Cross)
     df['sinyal_tarihsel'] = 0
-    df.loc[(df['sma_20'] > df['sma_50']) & (df['sma_20'].shift(1) <= df['sma_50'].shift(1)), 'sinyal_tarihsel'] = 1
-    df.loc[(df['sma_20'] < df['sma_50']) & (df['sma_20'].shift(1) >= df['sma_50'].shift(1)), 'sinyal_tarihsel'] = -1
-
+    # Kesişimleri bulma
+    df.loc[(df['sma_20'] > df['sma_50']) & (df['sma_20'].shift(1) <= df['sma_50'].shift(1)), 'sinyal_tarihsel'] = 1 # AL SİNYALİ
+    df.loc[(df['sma_20'] < df['sma_50']) & (df['sma_20'].shift(1) >= df['sma_50'].shift(1)), 'sinyal_tarihsel'] = -1 # SAT SİNYALİ
+    
     return df
 
-def sinyal_kontrol(df):
-    son = df.iloc[-1]
-    if son['sma_20'] > son['sma_50']:
-        return "Güçlü AL (Uptrend)"
-    elif son['sma_20'] < son['sma_50']:
-        return "Güçlü SAT (Downtrend)"
-    return "NÖTR"
+def sinyal_kontrol(df_analiz):
+    """En güncel sinyali döndürür."""
+    # Sinyalin oluştuğu son noktalara bak
+    son_sinyaller = df_analiz[df_analiz['sinyal_tarihsel'] != 0]
+    if son_sinyaller.empty:
+        return "⚪ NÖTR"
+        
+    son_sinyal = son_sinyaller['sinyal_tarihsel'].iloc[-1]
+    if son_sinyal == 1:
+        return "🟢 AL (LONG)"
+    elif son_sinyal == -1:
+        return "🔴 SAT (SHORT)"
+    else:
+        return "⚪ NÖTR"
 
-def piyasa_analizi_yap(df, sinyal):
-    son_rsi = df['rsi'].iloc[-1]
-    analiz = f"📈 **Piyasa Özeti:**\n- Sistem Sinyali: **{sinyal}**\n- RSI (14): **{son_rsi:.2f}** "
-    if son_rsi > 70: 
-        analiz += "(Aşırı Alım - Yüksek Risk, Kar Alışları Gelebilir)"
-    elif son_rsi < 30: 
-        analiz += "(Aşırı Satım - Fırsat Bölgesi Olabilir)"
-    else: 
-        analiz += "(Normal Bölge)"
-    return analiz
+def piyasa_analizi_yap(df_analiz, sinyal):
+    """Ekranda gösterilecek kısa analiz metni."""
+    rsi_degeri = df_analiz['rsi'].iloc[-1]
+    if rsi_degeri > 70: rsi_durumu = "Aşırı Alım (Düzeltme Gelebilir)"
+    elif rsi_degeri < 30: rsi_durumu = "Aşırı Satım (Tepki Gelebilir)"
+    else: rsi_durumu = "Normal Bölge"
+    
+    return f"**Teknik Yorum:** Güncel sinyal **{sinyal}**. RSI değeri `{rsi_degeri:.2f}` ile {rsi_durumu} aşamasında."
