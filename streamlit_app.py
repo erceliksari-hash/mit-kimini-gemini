@@ -1,7 +1,5 @@
 from ai_engine import ai_akilli_karar_ver
 import datetime
-import json
-import os
 import time
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,16 +7,32 @@ from plotly.subplots import make_subplots
 import requests
 import streamlit as st
 
-from config import (
-    TELEGRAM_TOKEN, TELEGRAM_CHAT_ID,
-    AYAR_DOSYASI, PORTFOY_DOSYASI, SANAL_CUZDAN_DOSYASI,
-    DEFAULT_SETTINGS
-)
+from config import DEFAULT_SETTINGS
 from data_sources import veri_cek
 from indicators import hesapla_teknikler, piyasa_analizi_yap, sinyal_kontrol
 from utils import donusum_noktalari_hesapla, strateji_hesapla
-from news_sentiment import varlik_haber_analizi, tum_varliklar_haber_raporu
-from multi_timeframe import coklu_zaman_dilimi_analiz, coklu_tf_rapor
+
+# NOT: news_sentiment.py ve multi_timeframe.py projede opsiyonel eklentiler.
+# Eskiden bunlar zorunlu import edildiği için dosyalar mevcut değilse
+# (örn. Render'a deploy edilirken unutulduysa) uygulama HİÇ açılmıyordu.
+# ai_memory.py ile aynı desene çekildi: eksikse özellik sadece o sekmede
+# devre dışı kalır, uygulamanın geri kalanı çalışmaya devam eder.
+try:
+    from news_sentiment import varlik_haber_analizi, tum_varliklar_haber_raporu
+    NEWS_SENTIMENT_AVAILABLE = True
+except ImportError:
+    NEWS_SENTIMENT_AVAILABLE = False
+    def varlik_haber_analizi(*args, **kwargs): return None
+    def tum_varliklar_haber_raporu(*args, **kwargs): return "📰 Haber modülü (news_sentiment.py) yüklenmedi."
+
+try:
+    from multi_timeframe import coklu_zaman_dilimi_analiz, coklu_tf_rapor
+    MULTI_TIMEFRAME_AVAILABLE = True
+except ImportError:
+    MULTI_TIMEFRAME_AVAILABLE = False
+    def coklu_zaman_dilimi_analiz(*args, **kwargs): return None
+    def coklu_tf_rapor(*args, **kwargs): return "⏱️ Çoklu zaman dilimi modülü (multi_timeframe.py) yüklenmedi."
+
 try:
     from ai_memory import hafiza_yukle, basari_istatistikleri, ogrenme_raporu_olustur, kararlari_degerlendir
 except ImportError:
@@ -28,70 +42,21 @@ except ImportError:
     def ogrenme_raporu_olustur(): return "🧠 AI Hafıza modülü henüz yüklenmedi."
     def kararlari_degerlendir(): pass
 
+# Ayar/cüzdan/portföy yönetimi, otonom motor, Telegram gönderimi ve backtest
+# artık trading_engine.py'de tek yerde tanımlı (bot_servisi.py ile paylaşılır).
+from trading_engine import (
+    ayarlari_yukle, ayarlari_kaydet,
+    portfoy_yukle, portfoy_kaydet,
+    sanal_cuzdan_yukle, sanal_cuzdan_kaydet,
+    otonom_islem_calistir, telegram_bildir as telegram_bildirim_gonder,
+    calistir_backtest, markdown_guvenli,
+)
+
 st.set_page_config(page_title="Pro Finans Paneli", layout="wide")
 st.markdown(
     """<style>.stApp { background-color: #0e1117; }</style>""",
     unsafe_allow_html=True,
 )
-
-# ═══════════════════════════════════════════════════════
-# AYAR / VERİ YÖNETİMİ
-# ═══════════════════════════════════════════════════════
-
-def ayarlari_yukle():
-    if not os.path.exists(AYAR_DOSYASI):
-        with open(AYAR_DOSYASI, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT_SETTINGS, f, indent=2, ensure_ascii=False)
-        return DEFAULT_SETTINGS.copy()
-    try:
-        with open(AYAR_DOSYASI, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return DEFAULT_SETTINGS.copy()
-
-
-def ayarlari_kaydet(ayarlar):
-    with open(AYAR_DOSYASI, "w", encoding="utf-8") as f:
-        json.dump(ayarlar, f, indent=2, ensure_ascii=False)
-
-
-def portfoy_yukle():
-    if not os.path.exists(PORTFOY_DOSYASI):
-        return {}
-    try:
-        with open(PORTFOY_DOSYASI, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {}
-
-
-def portfoy_kaydet(portfoy_verisi):
-    with open(PORTFOY_DOSYASI, "w", encoding="utf-8") as f:
-        json.dump(portfoy_verisi, f, indent=2, ensure_ascii=False)
-
-
-def sanal_cuzdan_yukle():
-    if not os.path.exists(SANAL_CUZDAN_DOSYASI):
-        varsayilan = {
-            "nakit": 10000.0,
-            "baslangic_nakit": 10000.0,
-            "pozisyonlar": {},
-            "gecmis_islemler": []
-        }
-        with open(SANAL_CUZDAN_DOSYASI, "w", encoding="utf-8") as f:
-            json.dump(varsayilan, f, indent=2, ensure_ascii=False)
-        return varsayilan
-    try:
-        with open(SANAL_CUZDAN_DOSYASI, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {"nakit": 10000.0, "baslangic_nakit": 10000.0, "pozisyonlar": {}, "gecmis_islemler": []}
-
-
-def sanal_cuzdan_kaydet(cuzdan_verisi):
-    with open(SANAL_CUZDAN_DOSYASI, "w", encoding="utf-8") as f:
-        json.dump(cuzdan_verisi, f, indent=2, ensure_ascii=False)
-
 
 # ═══════════════════════════════════════════════════════
 # İNTERNETTEN VARLIK ARAMA
@@ -119,173 +84,6 @@ def internette_varlik_ara(sorgu):
     except Exception as e:
         st.error(f"Arama hatası: {e}")
         return []
-
-
-# ═══════════════════════════════════════════════════════
-# OTONOM SANAL CÜZDAN MOTORU
-# ═══════════════════════════════════════════════════════
-
-def otonom_islem_calistir(ayarlar=None, cuzdan=None):
-    """Bot servisiyle aynı mantıkta çalışan otonom motor."""
-    if ayarlar is None:
-        ayarlar = ayarlari_yukle()
-    if cuzdan is None:
-        cuzdan = sanal_cuzdan_yukle()
-
-    varliklar = ayarlar.get("varliklar", [])
-    zaman_dilimi = ayarlar.get("zaman_dilimi", "1d")
-    risk = ayarlar.get("risk_ayarlari", DEFAULT_SETTINGS["risk_ayarlari"])
-
-    sl_yuzde = risk.get("sl_yuzde", 1.5)
-    tp_yuzde = risk.get("tp_yuzde", 3.0)
-    risk_orani = risk.get("risk_orani", 0.25)
-    max_pozisyon = risk.get("max_pozisyon", 4)
-
-    islem_raporu = ""
-    degisiklik_oldu = False
-
-    # 1. Açık pozisyonları kontrol et
-    acik_pozisyonlar = list(cuzdan["pozisyonlar"].keys())
-
-    for varlik in acik_pozisyonlar:
-        df = veri_cek(varlik, aralik=zaman_dilimi)
-        if df is None or df.empty:
-            continue
-
-        guncel_fiyat = float(df["close"].iloc[-1])
-        tarih_str = str(df["tarih"].iloc[-1])
-        poz = cuzdan["pozisyonlar"][varlik]
-
-        sl = poz["stop_loss"]
-        tp = poz["take_profit"]
-
-        df_analiz = hesapla_teknikler(df)
-        p_analiz = donusum_noktalari_hesapla(df_analiz)
-        p_sinyal = sinyal_kontrol(df_analiz)
-
-        analiz = piyasa_analizi_yap(df_analiz)
-        ai_karar, ai_aciklama = ai_akilli_karar_ver(
-            varlik=varlik,
-            fiyat=guncel_fiyat,
-            d1=p_analiz["destek"],
-            r1=p_analiz["direnc"],
-            p_sinyal=p_sinyal,
-            rsi=analiz.get("rsi", 50),
-            macd_durumu=analiz.get("macd_durumu", "NÖTR"),
-            trend=analiz.get("trend", "YATAY")
-        )
-
-        kapatma_nedeni = None
-        if guncel_fiyat <= sl:
-            kapatma_nedeni = f"STOP-LOSS (%{sl_yuzde})"
-        elif guncel_fiyat >= tp:
-            kapatma_nedeni = f"TAKE-PROFIT (%{tp_yuzde})"
-        elif ai_karar == "SAT":
-            kapatma_nedeni = "AI SAT SİNYALİ"
-
-        if kapatma_nedeni:
-            satis_degeri = poz["adet"] * guncel_fiyat
-            maliyet_tutar = poz["adet"] * poz["maliyet"]
-            kar_zarar = satis_degeri - maliyet_tutar
-            cuzdan["nakit"] += satis_degeri
-
-            emoji = "🟢" if kar_zarar >= 0 else "🔴"
-            islem_raporu += f"{emoji} **[KAPATMA - {kapatma_nedeni}]** `{varlik}` | Fiyat: `{guncel_fiyat:.4f}` | K/Z: `{kar_zarar:+.2f}$`\n"
-
-            cuzdan["gecmis_islemler"].append({
-                "islem": f"KAPAT ({kapatma_nedeni})",
-                "varlik": varlik,
-                "fiyat": guncel_fiyat,
-                "tarih": tarih_str,
-                "tutar": satis_degeri,
-                "kar_zarar": kar_zarar
-            })
-            del cuzdan["pozisyonlar"][varlik]
-            degisiklik_oldu = True
-
-    # 2. Yeni alım fırsatları
-    acik_sayisi = len(cuzdan["pozisyonlar"])
-
-    for varlik in varliklar:
-        if varlik in cuzdan["pozisyonlar"] or acik_sayisi >= max_pozisyon:
-            continue
-
-        df = veri_cek(varlik, aralik=zaman_dilimi)
-        if df is None or df.empty:
-            continue
-
-        df_analiz = hesapla_teknikler(df)
-        p_analiz = donusum_noktalari_hesapla(df_analiz)
-        p_sinyal = sinyal_kontrol(df_analiz)
-        guncel_fiyat = float(df_analiz["close"].iloc[-1])
-        tarih_str = str(df_analiz["tarih"].iloc[-1])
-
-        analiz = piyasa_analizi_yap(df_analiz)
-        ai_karar, ai_aciklama = ai_akilli_karar_ver(
-            varlik=varlik,
-            fiyat=guncel_fiyat,
-            d1=p_analiz["destek"],
-            r1=p_analiz["direnc"],
-            p_sinyal=p_sinyal,
-            rsi=analiz.get("rsi", 50),
-            macd_durumu=analiz.get("macd_durumu", "NÖTR"),
-            trend=analiz.get("trend", "YATAY")
-        )
-
-        sahte_var = "SAHTE" in p_sinyal.upper() or "⚠️" in p_sinyal
-
-        if ai_karar == "AL" and not sahte_var:
-            harcanacak_nakit = cuzdan["nakit"] * risk_orani
-            if harcanacak_nakit > 10 and cuzdan["nakit"] >= harcanacak_nakit:
-                adet = harcanacak_nakit / guncel_fiyat
-                strateji = strateji_hesapla(guncel_fiyat, p_analiz["destek"], p_analiz["direnc"], sl_yuzde, tp_yuzde)
-
-                cuzdan["nakit"] -= harcanacak_nakit
-                cuzdan["pozisyonlar"][varlik] = {
-                    "adet": adet,
-                    "maliyet": guncel_fiyat,
-                    "stop_loss": strateji["stop_loss"],
-                    "take_profit": strateji["take_profit"],
-                    "tarih": tarih_str,
-                    "rr_orani": strateji["rr_orani"]
-                }
-
-                islem_raporu += f"🟢 **[AL - AI ONAYLI]** `{varlik}` | Fiyat: `{guncel_fiyat:.4f}` | SL: `{strateji['stop_loss']:.4f}` | TP: `{strateji['take_profit']:.4f}`\n"
-                cuzdan["gecmis_islemler"].append({
-                    "islem": "AL",
-                    "varlik": varlik,
-                    "fiyat": guncel_fiyat,
-                    "tarih": tarih_str,
-                    "tutar": harcanacak_nakit,
-                    "adet": adet
-                })
-                acik_sayisi += 1
-                degisiklik_oldu = True
-
-    if degisiklik_oldu:
-        sanal_cuzdan_kaydet(cuzdan)
-
-    return islem_raporu, cuzdan
-
-
-# ═══════════════════════════════════════════════════════
-# TELEGRAM BİLDİRİM
-# ═══════════════════════════════════════════════════════
-
-def telegram_bildirim_gonder(mesaj):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        st.warning("Telegram token/chat_id ayarlanmamış.")
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mesaj,
-        "parse_mode": "Markdown",
-    }
-    try:
-        requests.post(url, json=payload, timeout=10)
-    except Exception as e:
-        st.error(f"Telegram hatası: {e}")
 
 
 # ═══════════════════════════════════════════════════════
@@ -329,66 +127,12 @@ def detayli_analiz_ve_yorum_olustur(varlik, df_t_analiz, p_analiz, p_sinyal):
         f"   • Destekler: S1:`{s1:.4f}` S2:`{s2:.4f}` S3:`{s3:.4f}`\n"
         f"   • Dirençler: R1:`{r1:.4f}` R2:`{r2:.4f}` R3:`{r3:.4f}`\n"
         f"   • Strateji: SL:`{strateji['stop_loss']:.4f}` | TP:`{strateji['take_profit']:.4f}` | R/R:`{strateji['rr_orani']:.2f}`\n"
-        f"   • AI Gerekçe: {ai_aciklama[:200]}...\n"
+        # AI'nin serbest metni kaçışlanır: içinde *_[]` gibi karakterler olursa
+        # Telegram'ın Markdown ayrıştırıcısı mesajın tamamını reddedebiliyordu.
+        f"   • AI Gerekçe: {markdown_guvenli(ai_aciklama[:200])}...\n"
         f"   • Sinyal Kalitesi: {sahte_yorum}\n\n"
     )
     return rapor_metni
-
-
-# ═══════════════════════════════════════════════════════
-# BACKTEST MOTORU
-# ═══════════════════════════════════════════════════════
-
-def calistir_backtest(df):
-    """Gelişmiş backtest: Teknik sinyalleri kullanarak simülasyon yapar."""
-    sermaye = 10000
-    bakiye = sermaye
-    pozisyon = 0
-    giris_fiyati = 0
-    islemler = []
-
-    for index, row in df.iterrows():
-        sinyal = row.get("sinyal_tarihsel", 0)
-        sahte = row.get("sahte_sinyal", False)
-
-        # AL: Sinyal AL ve sahte değil
-        if sinyal == 1 and not sahte and pozisyon == 0:
-            pozisyon = 1
-            giris_fiyati = float(row["close"])
-            giris_tarihi = row["tarih"]
-
-        # SAT: Sinyal SAT ve sahte değil
-        elif sinyal == -1 and not sahte and pozisyon == 1:
-            pozisyon = 0
-            cikis_fiyati = float(row["close"])
-            cikis_tarihi = row["tarih"]
-
-            oran = (cikis_fiyati - giris_fiyati) / giris_fiyati
-            kar_zarar_tutari = bakiye * oran
-            bakiye += kar_zarar_tutari
-
-            durum = "✅ Başarılı" if kar_zarar_tutari > 0 else "❌ Başarısız"
-            islemler.append({
-                "Giriş Tarihi": giris_tarihi,
-                "Çıkış Tarihi": cikis_tarihi,
-                "Giriş Fiyatı": round(giris_fiyati, 4),
-                "Çıkış Fiyatı": round(cikis_fiyati, 4),
-                "İşlem PnL ($)": round(kar_zarar_tutari, 2),
-                "Durum": durum,
-            })
-
-    toplam_islem = len(islemler)
-    basarili_islem = sum(1 for i in islemler if i["İşlem PnL ($)"] > 0)
-    win_rate = (basarili_islem / toplam_islem * 100) if toplam_islem > 0 else 0
-    net_kar_yuzde = ((bakiye - sermaye) / sermaye) * 100
-
-    return {
-        "son_bakiye": bakiye,
-        "toplam_islem": toplam_islem,
-        "win_rate": win_rate,
-        "net_kar_yuzde": net_kar_yuzde,
-        "islemler": islemler,
-    }
 
 
 # ═══════════════════════════════════════════════════════
