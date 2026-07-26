@@ -19,7 +19,14 @@ from indicators import hesapla_teknikler, piyasa_analizi_yap, sinyal_kontrol
 from utils import donusum_noktalari_hesapla, strateji_hesapla
 from news_sentiment import varlik_haber_analizi, tum_varliklar_haber_raporu
 from multi_timeframe import coklu_zaman_dilimi_analiz, coklu_tf_rapor
-from ai_memory import hafiza_yukle, basari_istatistikleri, ogrenme_raporu_olustur, kararlari_degerlendir
+try:
+    from ai_memory import hafiza_yukle, basari_istatistikleri, ogrenme_raporu_olustur, kararlari_degerlendir
+except ImportError:
+    # ai_memory.py eksikse boş fonksiyonlar
+    def hafiza_yukle(): return {"kararlar": []}
+    def basari_istatistikleri(): return {"toplam_karar": 0, "genel_basarisi": 0, "al_basarisi": 0, "sat_basarisi": 0, "bekle_basarisi": 0, "varlik_basarisi": {}}
+    def ogrenme_raporu_olustur(): return "🧠 AI Hafıza modülü henüz yüklenmedi."
+    def kararlari_degerlendir(): pass
 
 st.set_page_config(page_title="Pro Finans Paneli", layout="wide")
 st.markdown(
