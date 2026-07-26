@@ -16,54 +16,81 @@ api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
-# Güncel model adları (fallback sırasıyla)
-GEMINI_MODELS = [
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro-latest",
-    "gemini-1.5-pro",
-    "gemini-pro",
-]
+# Güncel model adları (fallback sırasıyla).
+#
+# NOT (önemli): gemini-1.5-* ailesi ve gemini-pro Google tarafından
+# tamamen kapatıldı (istekler 404 dönüyor). Eski liste her çağrıda
+# baştan sona başarısız olup botu sürekli "AI Fallback" moduna
+# düşürüyordu. Liste, Google'ın Temmuz 2026 itibarıyla desteklediği
+# modellerle güncellendi. "gemini-flash-latest" Google'ın otomatik
+# güncellenen takma adı olduğundan öncelikli denenir; GEMINI_MODEL ortam
+# değişkeni ile ilk denenecek model dışarıdan da zorlanabilir.
+_ONCELIKLI_MODEL = os.environ.get("GEMINI_MODEL")
+
+GEMINI_MODELS = [m for m in [
+    _ONCELIKLI_MODEL,
+    "gemini-flash-latest",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+] if m]
 
 
-def _get_available_model():
-    """Çalışan bir Gemini modeli bulur."""
+_WORKING_MODEL_NAME = None
+_BASARISIZ_MODELLER = set()
+
+
+def _model_dene(model_name, prompt):
+    """Modeli gerçek istekle dener; başarılıysa (model, yanıt) döner."""
+    model = genai.GenerativeModel(model_name)
+    response = model.generate_content(prompt)
+    return model, response
+
+
+def _ai_istek_gonder(prompt):
+    """
+    Model listesindeki modelleri sırayla dener. Önceki sürümde her model
+    için ayrı bir "test" isteği (generate_content("Hi", max_output_tokens=1))
+    atılıp SONRA asıl prompt tekrar gönderiliyordu; bu her soğuk başlangıçta
+    gereksiz API çağrısı/maliyet demekti. Burada doğrudan asıl istekle
+    denenir, başarısız olan model bir dahaki sefere tekrar denenmesin diye
+    süreç içinde hatırlanır (cache).
+    """
+    global _WORKING_MODEL_NAME
+
     if not api_key:
-        return None
+        raise RuntimeError("GEMINI_API_KEY tanımlı değil")
 
-    for model_name in GEMINI_MODELS:
+    # Daha önce çalıştığı bilinen modeli önce dene.
+    denenecekler = GEMINI_MODELS
+    if _WORKING_MODEL_NAME and _WORKING_MODEL_NAME in GEMINI_MODELS:
+        denenecekler = [_WORKING_MODEL_NAME] + [
+            m for m in GEMINI_MODELS if m != _WORKING_MODEL_NAME
+        ]
+
+    son_hata = None
+    for model_name in denenecekler:
+        if model_name in _BASARISIZ_MODELLER:
+            continue
         try:
-            model = genai.GenerativeModel(model_name)
-            model.generate_content("Hi", generation_config={"max_output_tokens": 1})
-            print(f"[AI] Model bulundu: {model_name}")
-            return model_name
+            model, response = _model_dene(model_name, prompt)
+            _WORKING_MODEL_NAME = model_name
+            return response
         except Exception as e:
+            son_hata = e
+            _BASARISIZ_MODELLER.add(model_name)
             print(f"[AI] Model {model_name} başarısız: {e}")
             continue
 
-    return None
+    raise RuntimeError(f"Tüm Gemini modelleri başarısız oldu. Son hata: {son_hata}")
 
 
-_WORKING_MODEL = None
-
-def get_model():
-    """Cache'lenmiş çalışan modeli döndürür."""
-    global _WORKING_MODEL
-    if _WORKING_MODEL is None:
-        model_name = _get_available_model()
-        if model_name:
-            _WORKING_MODEL = genai.GenerativeModel(model_name)
-    return _WORKING_MODEL
-
-
-def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="NÖTR", 
-                        trend="YATAY", hacim_durumu="NORMAL", haber_sentiment=None, 
+def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="NÖTR",
+                        trend="YATAY", hacim_durumu="NORMAL", haber_sentiment=None,
                         hafiza_kullan=True, sinyal_turu="TEKNİK"):
     """Gemini AI ile varlık analizi yapar."""
     try:
-        model = get_model()
-        if not model:
-            return _fallback_karar(p_sinyal, "API anahtarı bulunamadı veya tüm modeller başarısız")
+        if not api_key:
+            return _fallback_karar(p_sinyal, "GEMINI_API_KEY tanımlı değil")
 
         # Haber sentiment bilgisi
         haber_bolumu = ""
@@ -81,8 +108,8 @@ def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="
             try:
                 istatistikler = basari_istatistikleri()
                 hafiza_bolumu = ai_prompt_gelistir(varlik, "BEKLE", istatistikler)
-            except:
-                pass
+            except Exception as e:
+                print(f"[AI] Hafıza okunamadı: {e}")
 
         prompt = f"""Sen profesyonel bir finansal analist ve quantitative trader'sın. 
 Aşağıdaki verileri objektif şekilde analiz ederek kesin bir işlem kararı ver.
@@ -119,22 +146,23 @@ GEREKÇE: [2 cümle, profesyonel ve net açıklama]
 STRATEJI: [SL: X.XX | TP: Y.YY]
 """
 
-        response = model.generate_content(prompt)
+        response = _ai_istek_gonder(prompt)
         yanit = response.text.strip()
 
         karar = "BEKLE"
-        if "KARAR: AL" in yanit.upper() or "KARAR:AL" in yanit.upper():
+        yanit_upper = yanit.upper()
+        if "KARAR: AL" in yanit_upper or "KARAR:AL" in yanit_upper:
             karar = "AL"
-        elif "KARAR: SAT" in yanit.upper() or "KARAR:SAT" in yanit.upper():
+        elif "KARAR: SAT" in yanit_upper or "KARAR:SAT" in yanit_upper:
             karar = "SAT"
 
         # Kararı hafızaya kaydet (opsiyonel)
         if AI_MEMORY_AVAILABLE:
             try:
-                karar_kaydet(varlik=varlik, karar=karar, fiyat=fiyat, 
+                karar_kaydet(varlik=varlik, karar=karar, fiyat=fiyat,
                             sinyal_turu=sinyal_turu, notlar=yanit[:200])
-            except:
-                pass
+            except Exception as e:
+                print(f"[AI] Karar hafızaya kaydedilemedi: {e}")
 
         return karar, yanit
 
