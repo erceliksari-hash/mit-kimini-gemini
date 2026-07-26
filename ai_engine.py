@@ -1,9 +1,16 @@
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
-from ai_memory import ai_prompt_gelistir, karar_kaydet, basari_istatistikleri
 
 load_dotenv()
+
+# ai_memory opsiyonel import (dosya eksikse hata vermez)
+try:
+    from ai_memory import ai_prompt_gelistir, karar_kaydet, basari_istatistikleri
+    AI_MEMORY_AVAILABLE = True
+except ImportError:
+    AI_MEMORY_AVAILABLE = False
+    print("[AI] ai_memory.py bulunamadı, hafıza özellikleri devre dışı.")
 
 api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
@@ -27,7 +34,6 @@ def _get_available_model():
     for model_name in GEMINI_MODELS:
         try:
             model = genai.GenerativeModel(model_name)
-            # Hızlı test
             model.generate_content("Hi", generation_config={"max_output_tokens": 1})
             print(f"[AI] Model bulundu: {model_name}")
             return model_name
@@ -38,7 +44,6 @@ def _get_available_model():
     return None
 
 
-# Global olarak çalışan modeli cache'le
 _WORKING_MODEL = None
 
 def get_model():
@@ -54,9 +59,7 @@ def get_model():
 def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="NÖTR", 
                         trend="YATAY", hacim_durumu="NORMAL", haber_sentiment=None, 
                         hafiza_kullan=True, sinyal_turu="TEKNİK"):
-    """
-    Gemini AI ile varlık analizi yapar. Haber sentiment'i opsiyonel olarak dahil edilir.
-    """
+    """Gemini AI ile varlık analizi yapar."""
     try:
         model = get_model()
         if not model:
@@ -72,9 +75,9 @@ def ai_akilli_karar_ver(varlik, fiyat, d1, r1, p_sinyal, rsi=50.0, macd_durumu="
 • Özet: {haber_sentiment.get('ozet', 'Veri yok')[:200]}
 """
 
-        # AI Hafıza bilgisi
+        # AI Hafıza bilgisi (opsiyonel)
         hafiza_bolumu = ""
-        if hafiza_kullan:
+        if hafiza_kullan and AI_MEMORY_AVAILABLE:
             try:
                 istatistikler = basari_istatistikleri()
                 hafiza_bolumu = ai_prompt_gelistir(varlik, "BEKLE", istatistikler)
@@ -125,12 +128,13 @@ STRATEJI: [SL: X.XX | TP: Y.YY]
         elif "KARAR: SAT" in yanit.upper() or "KARAR:SAT" in yanit.upper():
             karar = "SAT"
 
-        # Kararı hafızaya kaydet
-        try:
-            karar_kaydet(varlik=varlik, karar=karar, fiyat=fiyat, 
-                        sinyal_turu=sinyal_turu, notlar=yanit[:200])
-        except:
-            pass
+        # Kararı hafızaya kaydet (opsiyonel)
+        if AI_MEMORY_AVAILABLE:
+            try:
+                karar_kaydet(varlik=varlik, karar=karar, fiyat=fiyat, 
+                            sinyal_turu=sinyal_turu, notlar=yanit[:200])
+            except:
+                pass
 
         return karar, yanit
 
