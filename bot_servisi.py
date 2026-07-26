@@ -5,258 +5,26 @@ Otonom Akıllı Ticaret Botu - Render + GitHub Actions Uyumlu
 - Otonom sanal cüzdan yönetimi (SL/TP)
 - Telegram raporlama
 - Render free plan uyku modu desteği
+
+NOT: Ayar/cüzdan yönetimi, otonom motor, Telegram gönderimi ve backtest
+artık trading_engine.py içinde; bu dosya sadece "hangi modda nasıl
+çalıştırılır"ı yönetir. Böylece streamlit_app.py ile mantık ikilenmesi
+(ve aralarında sessizce oluşan sürüklenme) ortadan kalkar.
 """
 
-import os
 import sys
-import json
 import time
-import urllib.request
-import urllib.parse
 from datetime import datetime
 
-import pandas as pd
-
-from config import (
-    TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY,
-    AYAR_DOSYASI, SANAL_CUZDAN_DOSYASI, DEFAULT_SETTINGS
-)
 from data_sources import veri_cek
 from indicators import hesapla_teknikler, sinyal_kontrol, piyasa_analizi_yap
+from utils import donusum_noktalari_hesapla
+from trading_engine import (
+    log, IS_RENDER,
+    ayarlari_yukle, sanal_cuzdan_yukle,
+    otonom_islem_calistir, telegram_bildir, calistir_backtest,
+)
 from ai_engine import ai_akilli_karar_ver
-from utils import donusum_noktalari_hesapla, strateji_hesapla
-
-
-# ═══════════════════════════════════════════════════════
-# RENDER ORTAM KONTROLÜ
-# ═══════════════════════════════════════════════════════
-
-IS_RENDER = os.environ.get("RENDER", "false").lower() == "true"
-IS_GITHUB_ACTIONS = os.environ.get("GITHUB_ACTIONS", "false").lower() == "true"
-
-
-def log(mesaj):
-    """Ortama göre log yazdırır."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {mesaj}", flush=True)
-
-
-# ═══════════════════════════════════════════════════════
-# TELEGRAM BİLDİRİM
-# ═══════════════════════════════════════════════════════
-
-def telegram_bildir(mesaj):
-    """Telegram üzerinden Markdown formatlı mesaj gönderir."""
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        log("[UYARI] Telegram token/chat_id eksik.")
-        return False
-
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        max_len = 4000
-        mesajlar = [mesaj[i:i+max_len] for i in range(0, len(mesaj), max_len)]
-
-        for m in mesajlar:
-            data = urllib.parse.urlencode({
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": m,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True
-            }).encode("utf-8")
-
-            req = urllib.request.Request(url, data=data, method="POST")
-            with urllib.request.urlopen(req, timeout=15) as response:
-                pass
-
-        return True
-
-    except Exception as e:
-        log(f"[TELEGRAM HATASI] {e}")
-        return False
-
-
-# ═══════════════════════════════════════════════════════
-# AYAR / CÜZDAN YÖNETİMİ
-# ═══════════════════════════════════════════════════════
-
-def ayarlari_yukle():
-    """ayarlar.json'dan ayarları okur."""
-    if os.path.exists(AYAR_DOSYASI):
-        try:
-            with open(AYAR_DOSYASI, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            log(f"[AYAR HATASI] {e}")
-    return DEFAULT_SETTINGS.copy()
-
-
-def ayarlari_kaydet(ayarlar):
-    """ayarlar.json'a ayarları yazar."""
-    with open(AYAR_DOSYASI, "w", encoding="utf-8") as f:
-        json.dump(ayarlar, f, indent=2, ensure_ascii=False)
-
-
-def sanal_cuzdan_yukle():
-    """Sanal cüzdanı yükler."""
-    if os.path.exists(SANAL_CUZDAN_DOSYASI):
-        try:
-            with open(SANAL_CUZDAN_DOSYASI, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            log(f"[CÜZDAN HATASI] {e}")
-
-    varsayilan = {
-        "nakit": 10000.0,
-        "baslangic_nakit": 10000.0,
-        "pozisyonlar": {},
-        "gecmis_islemler": []
-    }
-    sanal_cuzdan_kaydet(varsayilan)
-    return varsayilan
-
-
-def sanal_cuzdan_kaydet(cuzdan):
-    """Sanal cüzdanı kaydeder."""
-    with open(SANAL_CUZDAN_DOSYASI, "w", encoding="utf-8") as f:
-        json.dump(cuzdan, f, indent=2, ensure_ascii=False)
-
-
-# ═══════════════════════════════════════════════════════
-# OTONOM İŞLEM MOTORU
-# ═══════════════════════════════════════════════════════
-
-def otonom_islem_calistir(ayarlar=None, cuzdan=None):
-    """Otonom al-sat motorunu çalıştırır."""
-    if ayarlar is None:
-        ayarlar = ayarlari_yukle()
-    if cuzdan is None:
-        cuzdan = sanal_cuzdan_yukle()
-
-    varliklar = ayarlar.get("varliklar", [])
-    zaman_dilimi = ayarlar.get("zaman_dilimi", "1d")
-    risk = ayarlar.get("risk_ayarlari", DEFAULT_SETTINGS["risk_ayarlari"])
-
-    sl_yuzde = risk.get("sl_yuzde", 1.5)
-    tp_yuzde = risk.get("tp_yuzde", 3.0)
-    risk_orani = risk.get("risk_orani", 0.25)
-    max_pozisyon = risk.get("max_pozisyon", 4)
-
-    islem_raporu = ""
-    degisiklik_oldu = False
-
-    # 1. Açık pozisyonları kontrol et
-    acik_pozisyonlar = list(cuzdan["pozisyonlar"].keys())
-
-    for varlik in acik_pozisyonlar:
-        df = veri_cek(varlik, aralik=zaman_dilimi)
-        if df is None or df.empty:
-            continue
-
-        guncel_fiyat = float(df["close"].iloc[-1])
-        tarih_str = str(df["tarih"].iloc[-1])
-        poz = cuzdan["pozisyonlar"][varlik]
-
-        sl = poz["stop_loss"]
-        tp = poz["take_profit"]
-
-        df_analiz = hesapla_teknikler(df)
-        p_analiz = donusum_noktalari_hesapla(df_analiz)
-        p_sinyal = sinyal_kontrol(df_analiz)
-
-        analiz = piyasa_analizi_yap(df_analiz)
-        ai_karar, ai_aciklama = ai_akilli_karar_ver(
-            varlik=varlik, fiyat=guncel_fiyat,
-            d1=p_analiz["destek"], r1=p_analiz["direnc"],
-            p_sinyal=p_sinyal, rsi=analiz.get("rsi", 50),
-            macd_durumu=analiz.get("macd_durumu", "NÖTR"),
-            trend=analiz.get("trend", "YATAY")
-        )
-
-        kapatma_nedeni = None
-        if guncel_fiyat <= sl:
-            kapatma_nedeni = f"STOP-LOSS (%{sl_yuzde})"
-        elif guncel_fiyat >= tp:
-            kapatma_nedeni = f"TAKE-PROFIT (%{tp_yuzde})"
-        elif ai_karar == "SAT":
-            kapatma_nedeni = "AI SAT SİNYALİ"
-
-        if kapatma_nedeni:
-            satis_degeri = poz["adet"] * guncel_fiyat
-            maliyet_tutar = poz["adet"] * poz["maliyet"]
-            kar_zarar = satis_degeri - maliyet_tutar
-            cuzdan["nakit"] += satis_degeri
-
-            emoji = "🟢" if kar_zarar >= 0 else "🔴"
-            islem_raporu += f"{emoji} **[KAPATMA - {kapatma_nedeni}]** `{varlik}`\n"
-            islem_raporu += f"   Fiyat: `{guncel_fiyat:.4f}` | K/Z: `{kar_zarar:+.2f}$`\n\n"
-
-            cuzdan["gecmis_islemler"].append({
-                "islem": f"KAPAT ({kapatma_nedeni})",
-                "varlik": varlik, "fiyat": guncel_fiyat,
-                "tarih": tarih_str, "tutar": satis_degeri,
-                "kar_zarar": kar_zarar
-            })
-            del cuzdan["pozisyonlar"][varlik]
-            degisiklik_oldu = True
-
-    # 2. Yeni alım fırsatları
-    acik_sayisi = len(cuzdan["pozisyonlar"])
-
-    for varlik in varliklar:
-        if varlik in cuzdan["pozisyonlar"] or acik_sayisi >= max_pozisyon:
-            continue
-
-        df = veri_cek(varlik, aralik=zaman_dilimi)
-        if df is None or df.empty:
-            continue
-
-        df_analiz = hesapla_teknikler(df)
-        p_analiz = donusum_noktalari_hesapla(df_analiz)
-        p_sinyal = sinyal_kontrol(df_analiz)
-        guncel_fiyat = float(df_analiz["close"].iloc[-1])
-        tarih_str = str(df_analiz["tarih"].iloc[-1])
-
-        analiz = piyasa_analizi_yap(df_analiz)
-        ai_karar, ai_aciklama = ai_akilli_karar_ver(
-            varlik=varlik, fiyat=guncel_fiyat,
-            d1=p_analiz["destek"], r1=p_analiz["direnc"],
-            p_sinyal=p_sinyal, rsi=analiz.get("rsi", 50),
-            macd_durumu=analiz.get("macd_durumu", "NÖTR"),
-            trend=analiz.get("trend", "YATAY")
-        )
-
-        sahte_var = "SAHTE" in p_sinyal.upper() or "⚠️" in p_sinyal
-
-        if ai_karar == "AL" and not sahte_var:
-            harcanacak_nakit = cuzdan["nakit"] * risk_orani
-            if harcanacak_nakit > 10 and cuzdan["nakit"] >= harcanacak_nakit:
-                adet = harcanacak_nakit / guncel_fiyat
-                strateji = strateji_hesapla(guncel_fiyat, p_analiz["destek"], p_analiz["direnc"], sl_yuzde, tp_yuzde)
-
-                cuzdan["nakit"] -= harcanacak_nakit
-                cuzdan["pozisyonlar"][varlik] = {
-                    "adet": adet, "maliyet": guncel_fiyat,
-                    "stop_loss": strateji["stop_loss"],
-                    "take_profit": strateji["take_profit"],
-                    "tarih": tarih_str, "rr_orani": strateji["rr_orani"]
-                }
-
-                islem_raporu += f"🟢 **[AL - AI ONAYLI]** `{varlik}`\n"
-                islem_raporu += f"   Fiyat: `{guncel_fiyat:.4f}` | Lot: `{adet:.6f}`\n"
-                islem_raporu += f"   SL: `{strateji['stop_loss']:.4f}` | TP: `{strateji['take_profit']:.4f}`\n\n"
-
-                cuzdan["gecmis_islemler"].append({
-                    "islem": "AL", "varlik": varlik,
-                    "fiyat": guncel_fiyat, "tarih": tarih_str,
-                    "tutar": harcanacak_nakit, "adet": adet
-                })
-                acik_sayisi += 1
-                degisiklik_oldu = True
-
-    if degisiklik_oldu:
-        sanal_cuzdan_kaydet(cuzdan)
-
-    return islem_raporu, cuzdan
 
 
 # ═══════════════════════════════════════════════════════
@@ -361,6 +129,24 @@ def tek_seferlik_mod():
     log("✅ Tamamlandı.")
 
 
+def _render_bekleme(toplam_saniye, bekleme_dk):
+    """
+    Render free plan'ın uyku moduna geçmemesi için 60 sn'lik adımlarla bekler
+    ve düzenli heartbeat loglar.
+
+    NOT: Önceki sürümde burada `kal_uysu` (tanımsız değişken) kullanılıyordu;
+    bu yüzden döngü her seferinde NameError ile patlıyordu ve dıştaki genel
+    `except` bunu yakalayıp 60 sn sonra piyasa_turu_raporu()'nu HEMEN tekrar
+    çağırıyordu. Sonuç: bot, ayarlanan 360 dakika yerine fiilen ~1 dakikada
+    bir tarama yapıyordu (gereksiz API/Telegram trafiği). Aşağıda düzeltildi.
+    """
+    kalan = 0
+    while kalan < toplam_saniye:
+        time.sleep(60)
+        kalan += 60
+        log(f"[RENDER] Heartbeat... ({kalan // 60}/{bekleme_dk} dk)")
+
+
 def surekli_mod(bekleme_dk=360):
     """Render Worker / Yerel sunucu için sürekli mod."""
     log(f"🤖 Sürekli Mod (Bekleme: {bekleme_dk} dk)")
@@ -370,16 +156,9 @@ def surekli_mod(bekleme_dk=360):
         try:
             piyasa_turu_raporu()
 
-            # Render free plan uyku modu kontrolü
             if IS_RENDER:
                 log("[RENDER] Bir sonraki tarama için bekleniyor...")
-                # Render'da 14 dakikada bir heartbeat gönder (uyku modunu önle)
-                toplam_bekleme = bekleme_dk * 60
-                kal_uyku = 0
-                while kal_uyku < toplam_bekleme:
-                    time.sleep(60)
-                    kal_uyku += 60
-                    log(f"[RENDER] Heartbeat... ({kal_uysu//60}/{bekleme_dk} dk)")
+                _render_bekleme(bekleme_dk * 60, bekleme_dk)
             else:
                 log(f"⏳ Sonraki tarama: {bekleme_dk} dk sonra...")
                 time.sleep(bekleme_dk * 60)
@@ -404,11 +183,10 @@ def backtest_mod():
     for varlik in varliklar:
         df = veri_cek(varlik, aralik=zaman_dilimi)
         if df is None or df.empty:
+            rapor += f"⚠️ `{varlik}`: Veri yok\n\n"
             continue
 
         df_analiz = hesapla_teknikler(df)
-        # Backtest fonksiyonunu streamlit_app'ten al
-        from streamlit_app import calistir_backtest
         sonuc = calistir_backtest(df_analiz)
 
         rapor += (
